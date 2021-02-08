@@ -39,6 +39,7 @@ class utilDwarf:
 			self.bit_offset = None
 			self.encoding = None
 			self.member = []
+			self.member_location = None
 			self.typedef = None
 			self.range = None
 
@@ -187,7 +188,7 @@ class utilDwarf:
 			elif at == "DW_AT_type":
 				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_data_member_location":
-				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.member_location = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_byte_size":
 				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_bit_offset":
@@ -208,6 +209,7 @@ class utilDwarf:
 		print("        offset: " + str(die.offset))
 		print("        name  : " + type_inf.name)
 		print("        type  : " + str(type_inf.typedef))
+		print("        memloc: " + str(type_inf.member_location))
 
 	def analyze_die_TAG_array_type(self, die: DIE):
 		# type要素追加

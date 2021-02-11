@@ -98,19 +98,20 @@ class utilDwarf:
 		self._curr_cu_info.address_size = cu.header['address_size']
 		self._curr_cu_info.debug_abbrev_offset = cu.header['debug_abbrev_offset']
 		self._curr_cu_info.unit_length = cu.header['unit_length']
-		#
-		print("    address_size       : " + str(self._curr_cu_info.address_size))
-		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
-		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
+		# debug comment
+#		print("    address_size       : " + str(self._curr_cu_info.address_size))
+#		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
+#		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
 		die: DIE
 		for die in cu.iter_DIEs():
 			self.analyze_die(die)
 
-	def analyze_die(self, die:DIE):
-		print("DIE tag: " + str(die.tag))
-		print("    offset: " + str(die.offset))
-		print("    size  : " + str(die.size))
+	def analyze_die(self, die: DIE):
+		# debug comment
+#		print("DIE tag: " + str(die.tag))
+#		print("    offset: " + str(die.offset))
+#		print("    size  : " + str(die.size))
 		if die.tag == "DW_TAG_variable":
 			self.analyze_die_TAG_variable(die)
 		elif die.tag == "DW_TAG_base_type":
@@ -202,16 +203,16 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				pass
 			else:
-				print("?: " + at)
+				print("unknown attribute detected: " + at)
 		# child check
 		if die.has_children:
 			pass
-		#
-		print("    DIE tag   : " + die.tag)
-		print("        offset: " + str(die.offset))
-		print("        name  : " + type_inf.name)
-		print("        type  : " + str(type_inf.typedef))
-		print("        memloc: " + str(type_inf.member_location))
+		# debug comment
+#		print("    DIE tag   : " + die.tag)
+#		print("        offset: " + str(die.offset))
+#		print("        name  : " + type_inf.name)
+#		print("        type  : " + str(type_inf.typedef))
+#		print("        memloc: " + str(type_inf.member_location))
 
 	def analyze_die_TAG_array_type(self, die: DIE):
 		# type要素追加
@@ -243,9 +244,9 @@ class utilDwarf:
 							type_inf.range = self.analyze_die_AT_FORM(attr.form, attr.value)
 				elif child.tag == "DW_TAG_enumeration_type":
 					pass
-		#
-		print("    type  : " + str(type_inf.typedef))
-		print("    range : " + str(type_inf.range))
+		# debug comment
+#		print("    type  : " + str(type_inf.typedef))
+#		print("    range : " + str(type_inf.range))
 
 
 	def analyze_die_TAG_typedef(self, die: DIE):
@@ -264,8 +265,9 @@ class utilDwarf:
 				pass
 			elif at == "DW_AT_decl_line":
 				pass
-		print("    name  : " + type_inf.name)
-		print("    type  : " + str(type_inf.typedef))
+		# debug comment
+#		print("    name  : " + type_inf.name)
+#		print("    type  : " + str(type_inf.typedef))
 
 
 	def analyze_die_TAG_variable(self, die:DIE):
@@ -292,10 +294,10 @@ class utilDwarf:
 				var_ref.type = die.attributes[at].value
 			elif at == "DW_AT_location":
 				var_ref.addr = self.analyze_die_AT_location(die.attributes[at])
-		#
-		print("    name  : " + var_ref.name)
-		print("    type  : " + str(var_ref.type))
-		print("    loca  : " + str(var_ref.addr))
+		# debug comment
+#		print("    name  : " + var_ref.name)
+#		print("    type  : " + str(var_ref.type))
+#		print("    loca  : " + str(var_ref.addr))
 
 	def analyze_die_AT_location(self, attr: AttributeValue):
 		# location解析
@@ -304,20 +306,20 @@ class utilDwarf:
 	def analyze_die_AT_FORM(self, form: str, value: any):
 		if form == "DW_FORM_ref_addr":
 			return value
-		if form == "DW_FORM_udata":
+		elif form == "DW_FORM_udata":
 			return value
-		if form == "DW_FORM_data1":
+		elif form == "DW_FORM_data1":
 			return value
-		if form == "DW_FORM_block1":
+		elif form == "DW_FORM_block1":
 			val_len = (1 + value[0]) + 1
 			ary_len = len(value)
 			if val_len > ary_len:
 				val_len = ary_len
 			data = bytearray(value[1:val_len])
 			return int.from_bytes(data, "little")
-		#
-		print("Unknown DW_FORM detected: " + form)
-		return None
+		else:
+			# 未実装多し
+			raise Exception("Unknown DW_FORM detected: " + form)
 
 
 	def make_memmap(self) -> None:

@@ -8,6 +8,8 @@ from elftools.dwarf.lineprogram import (LineProgram, LineProgramEntry)
 from elftools.dwarf.dwarfinfo import DWARFInfo
 from elftools.dwarf.callframe import (RegisterRule, CFARule)
 
+from .memmap import memmap
+
 class utilDwarf:
 
 	class cu_info:
@@ -50,7 +52,7 @@ class utilDwarf:
 		self._global_var_tbl: List[utilDwarf.var_info] = []
 		self._type_tbl: Dict[int, utilDwarf.type_info] = {}
 		self._typedef_tbl: Dict[int, utilDwarf.type_info] = {}
-		self._memmap: List[Tuple[int, str]] = []
+		self._memmap: List[memmap] = []
 		# elfファイルを開く
 		self._path = path
 		self._open()
@@ -168,9 +170,9 @@ class utilDwarf:
 
 	def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: type_info):
 		for child in die.iter_children():
-			type_inf.member.append(utilDwarf.type_info())
-			mem_inf = type_inf.member[len(type_inf.member)-1]
 			if child.tag == "DW_TAG_member":
+				type_inf.member.append(utilDwarf.type_info())
+				mem_inf = type_inf.member[len(type_inf.member)-1]
 				self.analyze_die_TAG_member(child, mem_inf)
 			elif child.tag == "DW_TAG_array_type":
 				# struct/union/class内で使う型の定義
@@ -319,55 +321,201 @@ class utilDwarf:
 
 
 	def make_memmap(self) -> None:
+		# メモリマップ初期化
+		self._memmap = []
+		# グローバル変数をすべてチェック
 		for var in self._global_var_tbl:
+			# 型情報取得
 			t_inf: utilDwarf.type_info
 			t_inf = self.get_type_info(var.type)
-			# typeチェック
-			if t_inf.tag == utilDwarf.type_info.TAG.base:
-				self.make_memmap_var_base(var, t_inf)
-			elif t_inf.tag == utilDwarf.type_info.TAG.array:
-				self.make_memmap_var_array(var, t_inf)
-			elif t_inf.tag == utilDwarf.type_info.TAG.struct:
-				self.make_memmap_var_struct(var, t_inf)
-			elif t_inf.tag == utilDwarf.type_info.TAG.union:
-				self.make_memmap_var_struct(var, t_inf)
-			else:
-				raise Exception("unknown variable type detected.")
+			#
+			self.make_memmap_impl(var, t_inf)
+
+
+	def make_memmap_impl(self, var: var_info, t_inf: type_info) -> None:
+		# typeチェック
+		if t_inf.tag == utilDwarf.type_info.TAG.base:
+			self.make_memmap_var_base(var, t_inf)
+		elif t_inf.tag == utilDwarf.type_info.TAG.array:
+			self.make_memmap_var_array(var, t_inf)
+		elif t_inf.tag == utilDwarf.type_info.TAG.struct:
+			self.make_memmap_var_struct(var, t_inf)
+		elif t_inf.tag == utilDwarf.type_info.TAG.union:
+			self.make_memmap_var_struct(var, t_inf)
+		else:
+			raise Exception("unknown variable type detected.")
 
 	def make_memmap_var_base(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		mem_var = memmap.var_type()
+		mem_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
+		mem_var.address = var.addr					# 配置アドレス
+		mem_var.name = var.name						# 変数名
+		# 型情報作成
+		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		# 変数情報登録
-		self._memmap.append((var.addr, var.name))
+		self._memmap.append(mem_var)
 
 	def make_memmap_var_array(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
+		memmap_var.address = var.addr					# 配置アドレス
+		memmap_var.name = var.name						# 変数名
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
+		memmap_var.array_size = t_inf.range				# 配列要素数
 		# 変数情報登録
-		name = var.name + "[" + str(t_inf.range) + "]"
-		self._memmap.append((var.addr, name))
+		self._memmap.append(memmap_var)
+
+		# 配列の各idxを個別にmemberとして登録
+		member_t_inf = self.get_type_info(t_inf.typedef)
+		for idx in range(0, memmap_var.array_size):
+			# 再帰処理開始
+			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
+
+	def make_memmap_var_array_each(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+		# typeチェック
+		if mem_inf.tag == utilDwarf.type_info.TAG.base:
+			self.make_memmap_var_array_each_base(parent, mem_inf, idx)
+		elif mem_inf.tag == utilDwarf.type_info.TAG.array:
+			self.make_memmap_var_array_each_array(parent, mem_inf, idx)
+		elif mem_inf.tag == utilDwarf.type_info.TAG.struct:
+			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+		elif mem_inf.tag == utilDwarf.type_info.TAG.union:
+			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+		else:
+			raise Exception("unknown variable type detected.")
+
+	def make_memmap_var_array_each_base(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+		# 配列要素[idx]を登録
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = parent.tag
+		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
+		memmap_var.name = "[" + str(idx) + "]"
+		memmap_var.byte_size = mem_inf.byte_size
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+	def make_memmap_var_array_each_array(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+		# 配列要素[idx]を登録
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = parent.tag
+		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
+		memmap_var.name = "[" + str(idx) + "]"
+		memmap_var.byte_size = mem_inf.byte_size
+		memmap_var.array_size = mem_inf.range
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+		# 配列の各idxを個別にmemberとして登録
+		for child_idx in range(0, memmap_var.array_size):
+			# 再帰処理開始
+			self.make_memmap_var_array_each(memmap_var, mem_inf, child_idx)
+
+	def make_memmap_var_array_each_struct(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+		# 配列要素[idx]を登録
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = parent.tag
+		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
+		memmap_var.name = "[" + str(idx) + "]"
+		memmap_var.byte_size = mem_inf.byte_size
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+		# メンバ変数を登録
+		for member_t_inf in mem_inf.member:
+			# 再帰処理開始
+			self.make_memmap_var_member(memmap_var, member_t_inf)
 
 	def make_memmap_var_struct(self, var: var_info, t_inf: type_info):
-		# 変数初期化
-		byte_count = 0
-		bit_count = 0
-		name = None
-		# 開始アドレス設定
-		addr = var.addr
 		# 構造体変数を登録
-		self._memmap.append((var.addr, var.name))
-		# メンバを登録
-		for mem in t_inf.member:
-			if t_inf.bit_size is not None:
-				# ビットフィールド処理
-				# メンバ登録
-				name = var.name + "." + mem.name
-				self._memmap.append((var.addr, name))
-				# ビット加算
-				bit_count += t_inf.bit_size
-				# ビットが1バイトを超えたら処理
-				if bit_count >= 8:
-					byte_count += (bit_count / 8)
-					bit_count = bit_count % 8
-			else:
-				# 通常メンバ処理
-				pass
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.struct		# 変数タイプタグ
+		memmap_var.address = var.addr					# 配置アドレス
+		memmap_var.name = var.name						# 変数名
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
+		# 変数情報登録
+		self._memmap.append(memmap_var)
+
+		# メンバ変数を登録
+		for member_t_inf in t_inf.member:
+			# 再帰処理開始
+			self.make_memmap_var_member(memmap_var, member_t_inf)
+
+	def make_memmap_var_member(self, parent: memmap.var_type, mem_inf: type_info):
+		# member型情報を取得
+		mem_t_inf = self.get_type_info(mem_inf.typedef)
+		# typeチェック
+		if mem_t_inf.tag == utilDwarf.type_info.TAG.base:
+			self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
+		elif mem_t_inf.tag == utilDwarf.type_info.TAG.array:
+			self.make_memmap_var_member_array(parent, mem_inf, mem_t_inf)
+		elif mem_t_inf.tag == utilDwarf.type_info.TAG.struct:
+			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+		elif mem_t_inf.tag == utilDwarf.type_info.TAG.union:
+			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+		else:
+			raise Exception("unknown variable type detected.")
+
+	def make_memmap_var_member_base(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.base								# 変数タイプタグ
+		memmap_var.address = parent.address + member_inf.member_location		# アドレス
+		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
+		memmap_var.name = member_inf.name										# メンバ名
+		if member_inf.bit_size is not None:
+			memmap_var.bit_size = member_inf.bit_size							# ビットサイズ
+			memmap_var.bit_offset = member_inf.bit_offset						# ビットオフセット
+			# member_inf.member_inf  # ビットフィールドのみ存在? パディングを含むバイト単位サイズ, バイト境界をまたぐ(bit7-8とか)と2バイトになる
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+	def make_memmap_var_member_array(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.array								# 変数タイプタグ
+		memmap_var.address = parent.address + member_inf.member_location		# アドレス
+		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
+		memmap_var.name = member_inf.name										# メンバ名
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		memmap_var.array_size = t_inf.range										# 配列要素数
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+		# 配列の各idxを個別にmemberとして登録
+		member_t_inf = self.get_type_info(t_inf.typedef)
+		for idx in range(0, memmap_var.array_size):
+			# 再帰処理開始
+			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
+
+	def make_memmap_var_member_struct(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+		# 構造体変数を登録
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.struct								# 変数タイプタグ
+		memmap_var.address = parent.address + member_inf.member_location		# アドレス
+		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
+		memmap_var.name = member_inf.name										# メンバ名
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+		# メンバ変数を登録
+		for member_t_inf in t_inf.member:
+			# 再帰処理開始
+			self.make_memmap_var_member(memmap_var, member_t_inf)
+
 
 
 	def get_type_info(self, type:int) -> type_info:

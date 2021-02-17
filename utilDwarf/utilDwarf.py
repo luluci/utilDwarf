@@ -1,5 +1,6 @@
 import pathlib
 import enum
+import copy
 from typing import List, Dict, Tuple
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.compileunit import CompileUnit
@@ -44,6 +45,7 @@ class utilDwarf:
 			self.member_location = None
 			self.typedef = None
 			self.range = None
+			self.const = None
 
 	def __init__(self, path: pathlib.Path):
 		# 文字コード
@@ -124,7 +126,12 @@ class utilDwarf:
 			self.analyze_die_TAG_typedef(die)
 		elif die.tag == "DW_TAG_array_type":
 			self.analyze_die_TAG_array_type(die)
+		elif die.tag == "DW_TAG_constant":
+			print("unknown tag.")
+		elif die.tag == "DW_TAG_const_type":
+			self.analyze_die_TAG_const_type(die)
 		else:
+			#print("unknown tag.")
 			pass
 
 	def analyze_die_TAG_base_type(self, die: DIE):
@@ -248,6 +255,27 @@ class utilDwarf:
 #		print("    type  : " + str(type_inf.typedef))
 #		print("    range : " + str(type_inf.range))
 
+	def analyze_die_TAG_const_type(self, die: DIE):
+		# typedef要素追加
+		idx = die.offset
+		self._typedef_tbl[idx] = utilDwarf.type_info()
+		type_inf = self._typedef_tbl[idx]
+		type_inf.const = True
+		# 情報取得
+		for at in die.attributes.keys():
+			attr: AttributeValue = die.attributes[at]
+			if at == "DW_AT_name":
+				type_inf.name = attr.value.decode(self._encode)
+			elif at == "DW_AT_type":
+				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
+			elif at == "DW_AT_address_class":
+				pass
+			elif at == "DW_AT_count":
+				pass
+		# debug comment
+#		print("    name  : " + type_inf.name)
+#		print("    type  : " + str(type_inf.typedef))
+
 
 	def analyze_die_TAG_typedef(self, die: DIE):
 		# typedef要素追加
@@ -294,6 +322,8 @@ class utilDwarf:
 				var_ref.type = die.attributes[at].value
 			elif at == "DW_AT_location":
 				var_ref.addr = self.analyze_die_AT_location(die.attributes[at])
+			elif at == "DW_AT_const_value":
+				pass
 		# debug comment
 #		print("    name  : " + var_ref.name)
 #		print("    type  : " + str(var_ref.type))
@@ -355,6 +385,7 @@ class utilDwarf:
 		mem_var.name = var.name						# 変数名
 		# 型情報作成
 		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
+		mem_var.const = t_inf.const					# const
 		# 変数情報登録
 		self._memmap.append(mem_var)
 
@@ -367,6 +398,7 @@ class utilDwarf:
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.array_size = t_inf.range				# 配列要素数
+		memmap_var.const = t_inf.const					# const
 		# 変数情報登録
 		self._memmap.append(memmap_var)
 
@@ -442,6 +474,7 @@ class utilDwarf:
 		memmap_var.name = var.name						# 変数名
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
+		memmap_var.const = t_inf.const					# const
 		# 変数情報登録
 		self._memmap.append(memmap_var)
 
@@ -521,12 +554,21 @@ class utilDwarf:
 
 
 	def get_type_info(self, type:int) -> type_info:
+		# type-qualifier情報
+		is_const = None
 		# typedef チェック
 		while type in self._typedef_tbl.keys():
+			# type-qualifierチェック
+			if self._typedef_tbl[type].const is not None:
+				is_const = True
+			# ツリーを辿る
 			type = self._typedef_tbl[type].typedef
 		# type 取得
 		if type not in self._type_tbl.keys():
 			# ありえないはず
 			raise Exception("undetected type appeared.")
-		return self._type_tbl[type]
+		result_type = copy.copy(self._type_tbl[type])
+		# type-qualifier情報付与
+		result_type.const = is_const
+		return result_type
 

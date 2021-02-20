@@ -33,6 +33,8 @@ class utilDwarf:
 			array = enum.auto()			# array
 			struct = enum.auto()		# struct
 			union = enum.auto()			# union
+			const = enum.auto()			# const
+			typedef = enum.auto()		# typedef
 
 		def __init__(self) -> None:
 			self.tag = None
@@ -43,7 +45,7 @@ class utilDwarf:
 			self.encoding = None
 			self.member = []
 			self.member_location = None
-			self.typedef = None
+			self.child_type = None
 			self.range = None
 			self.const = None
 
@@ -53,7 +55,6 @@ class utilDwarf:
 		# データコンテナ初期化
 		self._global_var_tbl: List[utilDwarf.var_info] = []
 		self._type_tbl: Dict[int, utilDwarf.type_info] = {}
-		self._typedef_tbl: Dict[int, utilDwarf.type_info] = {}
 		self._memmap: List[memmap] = []
 		# elfファイルを開く
 		self._path = path
@@ -126,10 +127,10 @@ class utilDwarf:
 			self.analyze_die_TAG_typedef(die)
 		elif die.tag == "DW_TAG_array_type":
 			self.analyze_die_TAG_array_type(die)
-		elif die.tag == "DW_TAG_constant":
-			print("unknown tag.")
 		elif die.tag == "DW_TAG_const_type":
 			self.analyze_die_TAG_const_type(die)
+		elif die.tag == "DW_TAG_constant":
+			print("unknown tag.")
 		else:
 			#print("unknown tag.")
 			pass
@@ -196,7 +197,7 @@ class utilDwarf:
 			if at == "DW_AT_name":
 				type_inf.name = attr.value.decode(self._encode)
 			elif at == "DW_AT_type":
-				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_data_member_location":
 				type_inf.member_location = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_byte_size":
@@ -233,7 +234,7 @@ class utilDwarf:
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_type":
-				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_allocated":
 				pass
 			elif at == "DW_AT_associated":
@@ -258,16 +259,16 @@ class utilDwarf:
 	def analyze_die_TAG_const_type(self, die: DIE):
 		# typedef要素追加
 		idx = die.offset
-		self._typedef_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._typedef_tbl[idx]
-		type_inf.const = True
+		self._type_tbl[idx] = utilDwarf.type_info()
+		type_inf = self._type_tbl[idx]
+		type_inf.tag = utilDwarf.type_info.TAG.const
 		# 情報取得
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
 				type_inf.name = attr.value.decode(self._encode)
 			elif at == "DW_AT_type":
-				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_address_class":
 				pass
 			elif at == "DW_AT_count":
@@ -280,15 +281,16 @@ class utilDwarf:
 	def analyze_die_TAG_typedef(self, die: DIE):
 		# typedef要素追加
 		idx = die.offset
-		self._typedef_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._typedef_tbl[idx]
+		self._type_tbl[idx] = utilDwarf.type_info()
+		type_inf = self._type_tbl[idx]
+		type_inf.tag = utilDwarf.type_info.TAG.typedef
 		# 情報取得
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
 				type_inf.name = attr.value.decode(self._encode)
 			elif at == "DW_AT_type":
-				type_inf.typedef = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
 				pass
 			elif at == "DW_AT_decl_line":
@@ -403,7 +405,7 @@ class utilDwarf:
 		self._memmap.append(memmap_var)
 
 		# 配列の各idxを個別にmemberとして登録
-		member_t_inf = self.get_type_info(t_inf.typedef)
+		member_t_inf = self.get_type_info(t_inf.child_type)
 		for idx in range(0, memmap_var.array_size):
 			# 再帰処理開始
 			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
@@ -485,7 +487,7 @@ class utilDwarf:
 
 	def make_memmap_var_member(self, parent: memmap.var_type, mem_inf: type_info):
 		# member型情報を取得
-		mem_t_inf = self.get_type_info(mem_inf.typedef)
+		mem_t_inf = self.get_type_info(mem_inf.child_type)
 		# typeチェック
 		if mem_t_inf.tag == utilDwarf.type_info.TAG.base:
 			self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
@@ -528,7 +530,7 @@ class utilDwarf:
 		parent.member.append(memmap_var)
 
 		# 配列の各idxを個別にmemberとして登録
-		member_t_inf = self.get_type_info(t_inf.typedef)
+		member_t_inf = self.get_type_info(t_inf.child_type)
 		for idx in range(0, memmap_var.array_size):
 			# 再帰処理開始
 			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
@@ -553,21 +555,65 @@ class utilDwarf:
 
 
 
-	def get_type_info(self, type:int) -> type_info:
+	def get_type_info(self, type_id:int) -> type_info:
 		# type-qualifier情報
 		is_const = None
-		# typedef チェック
-		while type in self._typedef_tbl.keys():
-			# type-qualifierチェック
-			if self._typedef_tbl[type].const is not None:
-				is_const = True
-			# ツリーを辿る
-			type = self._typedef_tbl[type].typedef
 		# type 取得
-		if type not in self._type_tbl.keys():
+		if type_id not in self._type_tbl.keys():
 			# ありえないはず
 			raise Exception("undetected type appeared.")
-		result_type = copy.copy(self._type_tbl[type])
+		# 結果の型情報を作成
+		# 修飾子等はツリーになっているので、コピーを作って反映させる
+		type_inf = copy.copy(self._type_tbl[type_id])
+		if type_inf.tag == utilDwarf.type_info.TAG.typedef:
+			type_inf.tag = None
+		# typedef チェック
+		next_type_id = type_inf.child_type
+		while next_type_id is not None:
+			# type-qualifierチェック
+			if type_inf.const is not None:
+				is_const = True
+			# child情報を結合していく
+			child_type = self._type_tbl[next_type_id]
+			if child_type.tag == utilDwarf.type_info.TAG.base:
+				if child_type.name is not None:
+					type_inf.name = child_type.name
+				if child_type.encoding is not None:
+					type_inf.encoding = child_type.encoding
+				if child_type.byte_size is not None:
+					type_inf.byte_size = child_type.byte_size
+				if type_inf.tag is None:
+					type_inf.tag = child_type.tag
+			elif child_type.tag == utilDwarf.type_info.TAG.const:
+				type_inf.const = True
+			elif child_type.tag == utilDwarf.type_info.TAG.typedef:
+				if type_inf.name is None and child_type.name is not None:
+					type_inf.name = child_type.name
+			elif child_type.tag == utilDwarf.type_info.TAG.struct:
+				if child_type.name is not None:
+					type_inf.name = child_type.name
+				if child_type.byte_size is not None:
+					type_inf.byte_size = child_type.byte_size
+				if child_type.member is not None:
+					type_inf.member = child_type.member
+				type_inf.tag = child_type.tag
+			elif child_type.tag == utilDwarf.type_info.TAG.union:
+				if child_type.name is not None:
+					type_inf.name = child_type.name
+				if child_type.byte_size is not None:
+					type_inf.byte_size = child_type.byte_size
+				if child_type.member is not None:
+					type_inf.member = child_type.member
+				type_inf.tag = child_type.tag
+			elif child_type.tag == utilDwarf.type_info.TAG.array:
+				if child_type.range is not None:
+					type_inf.range = child_type.range
+				type_inf.tag = child_type.tag
+			# child要素チェック
+			next_type_id = child_type.child_type
+		# 結果の型情報を作成
+		# 修飾子等はツリーになっているので、コピーを作って反映させる
+		result_type = copy.copy(type_inf)
 		# type-qualifier情報付与
 		result_type.const = is_const
 		return result_type

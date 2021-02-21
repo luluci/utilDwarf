@@ -29,12 +29,16 @@ class utilDwarf:
 
 	class type_info:
 		class TAG(enum.Enum):
-			base = enum.auto()			# primitive type
+			base = enum.auto()			# primitive(function/function-pointer含む) type
 			array = enum.auto()			# array
 			struct = enum.auto()		# struct
 			union = enum.auto()			# union
-			const = enum.auto()			# const
+			parameter = enum.auto()		# parameter
 			typedef = enum.auto()		# typedef
+			const = enum.auto()			# const
+			volatile = enum.auto()		# volatile
+			pointer = enum.auto()		# pointer
+			restrict = enum.auto()		# restrict
 
 		def __init__(self) -> None:
 			self.tag = None
@@ -42,12 +46,18 @@ class utilDwarf:
 			self.byte_size = None
 			self.bit_size = None
 			self.bit_offset = None
+			self.address_class = None
 			self.encoding = None
 			self.member = []
 			self.member_location = None
 			self.child_type = None
 			self.range = None
+			self.prototyped = None
 			self.const = None
+			self.pointer = None
+			self.restrict = None
+			self.volatile = None
+			self.params = []
 
 	def __init__(self, path: pathlib.Path):
 		# 文字コード
@@ -55,6 +65,7 @@ class utilDwarf:
 		# データコンテナ初期化
 		self._global_var_tbl: List[utilDwarf.var_info] = []
 		self._type_tbl: Dict[int, utilDwarf.type_info] = {}
+		self._addr_cls: Dict[int, List[utilDwarf.type_info]] = {}
 		self._memmap: List[memmap] = []
 		# elfファイルを開く
 		self._path = path
@@ -127,27 +138,76 @@ class utilDwarf:
 			self.analyze_die_TAG_typedef(die)
 		elif die.tag == "DW_TAG_array_type":
 			self.analyze_die_TAG_array_type(die)
+		elif die.tag == "DW_TAG_subroutine_type":
+			self.analyze_die_TAG_subroutine_type(die)
+		elif die.tag == "DW_TAG_inlined_subroutine":
+			print("DW_TAG_inlined_subroutine tag.")
+		elif die.tag == "DW_TAG_member":
+			#print("DW_TAG_member tag.")
+			#self.analyze_die_TAG_member(die)
+			# おそらく全部重複
+			pass
+		elif die.tag == "DW_TAG_subrange_type":
+			#print("DW_TAG_subrange_type tag.")
+			# おそらく全部重複
+			pass
+		elif die.tag == "DW_TAG_formal_parameter":
+			#print("DW_TAG_formal_parameter tag.")
+			# おそらく全部重複
+			pass
+
+		elif die.tag == "DW_TAG_subprogram":
+			# 関数
+			print("DW_TAG_subprogram tag.")
+			pass
+
+		# type-qualifier
 		elif die.tag == "DW_TAG_const_type":
-			self.analyze_die_TAG_const_type(die)
+			self.analyze_die_TAG_type_qualifier(die, utilDwarf.type_info.TAG.const)
+		elif die.tag == "DW_TAG_pointer_type":
+			self.analyze_die_TAG_type_qualifier(die, utilDwarf.type_info.TAG.pointer)
+		elif die.tag == "DW_TAG_restrict_type":
+			self.analyze_die_TAG_type_qualifier(die, utilDwarf.type_info.TAG.restrict)
+		elif die.tag == "DW_TAG_volatile_type":
+			self.analyze_die_TAG_type_qualifier(die, utilDwarf.type_info.TAG.volatile)
+		elif die.tag == {"DW_TAG_packed_type", "DW_TAG_reference_type", "DW_TAG_shared_type"}:
+			pass
+
 		elif die.tag == "DW_TAG_constant":
-			print("unknown tag.")
+			print("DW_TAG_constant.")
+		elif die.tag == "DW_TAG_restrict_type":
+			print("DW_TAG_restrict_type tag.")
+		elif die.tag == "DW_TAG_unspecified_type":
+			print("DW_TAG_unspecified_type tag.")
+
+		elif die.tag == "DW_TAG_compile_unit":
+			print("DW_TAG_compile_unit tag.")
+		elif die.tag == "DW_TAG_dwarf_procedure":
+			print("DW_TAG_dwarf_procedure tag.")
+
 		else:
-			#print("unknown tag.")
+			if die.tag is not None:
+				print("unimplemented tag: " + die.tag)
 			pass
 
 	def analyze_die_TAG_base_type(self, die: DIE):
-		# type要素追加
-		idx = die.offset
-		self._type_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._type_tbl[idx]
-		type_inf.tag = utilDwarf.type_info.TAG.base
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
 		for at in die.attributes.keys():
+			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
-				type_inf.name = die.attributes[at].value.decode(self._encode)
-			if at == "DW_AT_encoding":
-				type_inf.encoding = die.attributes[at].value
-			if at == "DW_AT_byte_size":
-				type_inf.byte_size = die.attributes[at].value
+				type_inf.name = self.analyze_die_AT_FORM(attr.form, attr.value)
+			elif at == "DW_AT_encoding":
+				type_inf.encoding = self.analyze_die_AT_FORM(attr.form, attr.value)
+			elif at == "DW_AT_byte_size":
+				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
+			else:
+				print("base_type:?:" + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				print("unproc child.")
 
 	def analyze_die_TAG_structure_type(self, die: DIE):
 		self.analyze_die_TAG_structure_union_type_impl(die, utilDwarf.type_info.TAG.struct)
@@ -156,11 +216,8 @@ class utilDwarf:
 		self.analyze_die_TAG_structure_union_type_impl(die, utilDwarf.type_info.TAG.union)
 
 	def analyze_die_TAG_structure_union_type_impl(self, die: DIE, tag: type_info.TAG):
-		# type要素追加
-		idx = die.offset
-		self._type_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._type_tbl[idx]
-		type_inf.tag = tag
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, tag)
 		# Attr取得
 		# 情報取得
 		for at in die.attributes.keys():
@@ -173,6 +230,8 @@ class utilDwarf:
 				pass
 			elif at == "DW_AT_decl_line":
 				pass
+			else:
+				print("struct/union:?:" + at)
 		# child取得
 		if die.has_children:
 			self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
@@ -180,9 +239,11 @@ class utilDwarf:
 	def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: type_info):
 		for child in die.iter_children():
 			if child.tag == "DW_TAG_member":
-				type_inf.member.append(utilDwarf.type_info())
-				mem_inf = type_inf.member[len(type_inf.member)-1]
-				self.analyze_die_TAG_member(child, mem_inf)
+				#type_inf.member.append(utilDwarf.type_info())
+				#mem_inf = type_inf.member[len(type_inf.member)-1]
+				#self.analyze_die_TAG_member(child, mem_inf)
+				mem_inf = self.analyze_die_TAG_member(child)
+				type_inf.member.append(mem_inf)
 			elif child.tag == "DW_TAG_array_type":
 				# struct/union/class内で使う型の定義
 				# よって, member要素ではない
@@ -191,7 +252,11 @@ class utilDwarf:
 				# ありえないパス
 				print("?: " + child.tag)
 
-	def analyze_die_TAG_member(self, die: DIE, type_inf: type_info):
+	def analyze_die_TAG_member(self, die: DIE) -> type_info:
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, None)
+		# type要素追加
+		idx = die.offset
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
@@ -214,22 +279,19 @@ class utilDwarf:
 				print("unknown attribute detected: " + at)
 		# child check
 		if die.has_children:
-			pass
+			for child in die.iter_children():
+				pass
 		# debug comment
 #		print("    DIE tag   : " + die.tag)
 #		print("        offset: " + str(die.offset))
 #		print("        name  : " + type_inf.name)
 #		print("        type  : " + str(type_inf.typedef))
 #		print("        memloc: " + str(type_inf.member_location))
+		return type_inf
 
 	def analyze_die_TAG_array_type(self, die: DIE):
-		# type要素追加
-		idx = die.offset
-		if idx not in self._type_tbl.keys():
-			self._type_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._type_tbl[idx]
-		# tag
-		type_inf.tag = utilDwarf.type_info.TAG.array
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.array)
 		# Attr check
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
@@ -241,6 +303,8 @@ class utilDwarf:
 				pass
 			elif at == "DW_AT_data_location":
 				pass
+			else:
+				print("array:?:" + at)
 		# child check
 		if die.has_children:
 			for child in die.iter_children():
@@ -256,12 +320,42 @@ class utilDwarf:
 #		print("    type  : " + str(type_inf.typedef))
 #		print("    range : " + str(type_inf.range))
 
-	def analyze_die_TAG_const_type(self, die: DIE):
-		# typedef要素追加
-		idx = die.offset
-		self._type_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._type_tbl[idx]
-		type_inf.tag = utilDwarf.type_info.TAG.const
+	def analyze_die_TAG_subroutine_type(self, die: DIE):
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+		for at in die.attributes.keys():
+			if at == "DW_AT_name":
+				type_inf.name = die.attributes[at].value.decode(self._encode)
+			elif at == "DW_AT_type":
+				# 返り値型
+				type_inf.child_type = die.attributes[at].value
+			elif at == "DW_AT_prototyped":
+				type_inf.prototyped = die.attributes[at].value
+			else:
+				print("subroutine_type:?:" + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				if child.tag == "DW_TAG_formal_parameter":
+					self.analyze_die_TAG_formal_parameter(child, type_inf)
+				elif child.tag == "DW_TAG_unspecified_parameters":
+					pass
+
+	def analyze_die_TAG_formal_parameter(self, param: DIE, t_inf: type_info):
+		# type要素追加
+		param_inf = utilDwarf.type_info()
+		t_inf.params.append(param_inf)
+		param_inf.tag = utilDwarf.type_info.TAG.parameter
+		# 引数情報をtype_infoに格納
+		for attr in param.attributes.keys():
+			if attr == "DW_AT_type":
+				param_inf.child_type = param.attributes[attr].value
+
+
+	def analyze_die_TAG_type_qualifier(self, die: DIE, tag: type_info.TAG):
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, tag)
 		# 情報取得
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
@@ -270,20 +364,24 @@ class utilDwarf:
 			elif at == "DW_AT_type":
 				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_address_class":
-				pass
+				type_inf.address_class = self.analyze_die_AT_FORM(attr.form, attr.value)
+				self.register_address_class(type_inf)
 			elif at == "DW_AT_count":
 				pass
+			else:
+				print("unknown attr: " + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				print("unproc child.")
 		# debug comment
 #		print("    name  : " + type_inf.name)
 #		print("    type  : " + str(type_inf.typedef))
 
-
 	def analyze_die_TAG_typedef(self, die: DIE):
-		# typedef要素追加
-		idx = die.offset
-		self._type_tbl[idx] = utilDwarf.type_info()
-		type_inf = self._type_tbl[idx]
-		type_inf.tag = utilDwarf.type_info.TAG.typedef
+		# type_info取得
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.typedef)
 		# 情報取得
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
@@ -295,13 +393,27 @@ class utilDwarf:
 				pass
 			elif at == "DW_AT_decl_line":
 				pass
+			else:
+				print("typedef:?:" + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				print("unproc child.")
 		# debug comment
 #		print("    name  : " + type_inf.name)
 #		print("    type  : " + str(type_inf.typedef))
 
+	def new_type_info(self, idx: int, tag: type_info.TAG) -> type_info:
+		if idx not in self._type_tbl.keys():
+			self._type_tbl[idx] = utilDwarf.type_info()
+		else:
+			print("duplicate!")
+		type_inf = self._type_tbl[idx]
+		type_inf.tag = tag
+		return type_inf
 
 	def analyze_die_TAG_variable(self, die:DIE):
-		#print("analyze: TAG_variable")
 		var_ref: utilDwarf.var_info = None
 		if "DW_AT_external" in die.attributes.keys():
 			# グローバル変数
@@ -326,6 +438,13 @@ class utilDwarf:
 				var_ref.addr = self.analyze_die_AT_location(die.attributes[at])
 			elif at == "DW_AT_const_value":
 				pass
+			else:
+				print("variable:?:" + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				print("unproc child.")
 		# debug comment
 #		print("    name  : " + var_ref.name)
 #		print("    type  : " + str(var_ref.type))
@@ -338,6 +457,8 @@ class utilDwarf:
 	def analyze_die_AT_FORM(self, form: str, value: any):
 		if form == "DW_FORM_ref_addr":
 			return value
+		elif form == "DW_FORM_string":
+			return value.decode(self._encode)
 		elif form == "DW_FORM_udata":
 			return value
 		elif form == "DW_FORM_data1":
@@ -353,8 +474,43 @@ class utilDwarf:
 			# 未実装多し
 			raise Exception("Unknown DW_FORM detected: " + form)
 
+	def register_address_class(self, t_inf: type_info):
+		"""
+		DW_AT_address_class情報を登録する。
+		アーキテクチャ特有のaddress_classを取得する手段が無い？ので
+		"""
+		# address_class一覧を作成
+		if t_inf.address_class not in self._addr_cls.keys():
+			self._addr_cls[t_inf.address_class] = []
+		# 逆参照を記憶しておく
+		self._addr_cls[t_inf.address_class].append(t_inf)
+
+	def analyze_address_class(self):
+		"""
+		address_class一覧からバイトサイズ推論
+		naze?
+		"""
+		temp_dict = {}
+		#
+		if len(self._addr_cls) == 2:
+			addr_cls = [0] * 2
+			for i, cls in enumerate(self._addr_cls.keys()):
+				addr_cls[i] = cls
+			if addr_cls[0] < addr_cls[1]:
+				temp_dict[addr_cls[0]] = 2
+				temp_dict[addr_cls[1]] = 4
+			else:
+				temp_dict[addr_cls[0]] = 4
+				temp_dict[addr_cls[1]] = 2
+		#
+		for key in self._addr_cls.keys():
+			byte_size = temp_dict[key]
+			for t_inf in self._addr_cls[key]:
+				t_inf.byte_size = byte_size
 
 	def make_memmap(self) -> None:
+		# address_class推論
+		self.analyze_address_class()
 		# メモリマップ初期化
 		self._memmap = []
 		# グローバル変数をすべてチェック
@@ -556,6 +712,8 @@ class utilDwarf:
 
 
 	def get_type_info(self, type_id:int) -> type_info:
+		# typedef
+		TAG = utilDwarf.type_info.TAG
 		# type-qualifier情報
 		is_const = None
 		# type 取得
@@ -565,7 +723,7 @@ class utilDwarf:
 		# 結果の型情報を作成
 		# 修飾子等はツリーになっているので、コピーを作って反映させる
 		type_inf = copy.copy(self._type_tbl[type_id])
-		if type_inf.tag == utilDwarf.type_info.TAG.typedef:
+		if type_inf.tag in {TAG.typedef, TAG.const, TAG.pointer, TAG.restrict, TAG.volatile}:
 			type_inf.tag = None
 		# typedef チェック
 		next_type_id = type_inf.child_type
@@ -582,10 +740,10 @@ class utilDwarf:
 					type_inf.encoding = child_type.encoding
 				if child_type.byte_size is not None:
 					type_inf.byte_size = child_type.byte_size
+				if child_type.params:
+					type_inf.params = child_type.params
 				if type_inf.tag is None:
 					type_inf.tag = child_type.tag
-			elif child_type.tag == utilDwarf.type_info.TAG.const:
-				type_inf.const = True
 			elif child_type.tag == utilDwarf.type_info.TAG.typedef:
 				if type_inf.name is None and child_type.name is not None:
 					type_inf.name = child_type.name
@@ -609,12 +767,20 @@ class utilDwarf:
 				if child_type.range is not None:
 					type_inf.range = child_type.range
 				type_inf.tag = child_type.tag
+			elif child_type.tag == utilDwarf.type_info.TAG.const:
+				type_inf.const = True
+			elif child_type.tag == utilDwarf.type_info.TAG.pointer:
+				if child_type.byte_size is not None:
+					type_inf.byte_size = child_type.byte_size
+				type_inf.pointer = True
+			elif child_type.tag == utilDwarf.type_info.TAG.restrict:
+				type_inf.restrict = True
+			elif child_type.tag == utilDwarf.type_info.TAG.volatile:
+				type_inf.volatile = True
+			else:
+				# 実装忘れ以外ありえない
+				raise Exception("undetected type appeared.")
 			# child要素チェック
 			next_type_id = child_type.child_type
-		# 結果の型情報を作成
-		# 修飾子等はツリーになっているので、コピーを作って反映させる
-		result_type = copy.copy(type_inf)
-		# type-qualifier情報付与
-		result_type.const = is_const
-		return result_type
+		return type_inf
 

@@ -51,6 +51,7 @@ class utilDwarf:
 			self.member = []
 			self.member_location = None
 			self.child_type = None
+			self.result_type = None
 			self.range = None
 			self.prototyped = None
 			self.const = None
@@ -62,6 +63,7 @@ class utilDwarf:
 	def __init__(self, path: pathlib.Path):
 		# 文字コード
 		self._encode = "ShiftJIS"
+		self._arch = None
 		# データコンテナ初期化
 		self._global_var_tbl: List[utilDwarf.var_info] = []
 		self._type_tbl: Dict[int, utilDwarf.type_info] = {}
@@ -84,6 +86,7 @@ class utilDwarf:
 				return
 			# DWARF情報取得
 			self._dwarf_info = self._elf_file.get_dwarf_info()
+			self._arch = self._dwarf_info.config.machine_arch
 
 	def analyze(self):
 		cu: CompileUnit
@@ -328,7 +331,7 @@ class utilDwarf:
 				type_inf.name = die.attributes[at].value.decode(self._encode)
 			elif at == "DW_AT_type":
 				# 返り値型
-				type_inf.child_type = die.attributes[at].value
+				type_inf.result_type = die.attributes[at].value
 			elif at == "DW_AT_prototyped":
 				type_inf.prototyped = die.attributes[at].value
 			else:
@@ -487,26 +490,22 @@ class utilDwarf:
 
 	def analyze_address_class(self):
 		"""
-		address_class一覧からバイトサイズ推論
-		naze?
+		address_class作成
 		"""
-		temp_dict = {}
-		#
-		if len(self._addr_cls) == 2:
-			addr_cls = [0] * 2
-			for i, cls in enumerate(self._addr_cls.keys()):
-				addr_cls[i] = cls
-			if addr_cls[0] < addr_cls[1]:
-				temp_dict[addr_cls[0]] = 2
-				temp_dict[addr_cls[1]] = 4
-			else:
-				temp_dict[addr_cls[0]] = 4
-				temp_dict[addr_cls[1]] = 2
-		#
+		# Address Class Definition
+		address_class_list = {
+			# RL78
+			'Renesas RL78' : {
+				3: 4,			# 3 -> 4byte
+				4: 2,			# 4 -> 2byte
+			}
+		}
+		# Address Class 決定
+		address_class = address_class_list[self._arch]
+		# byte_size 設定
 		for key in self._addr_cls.keys():
-			byte_size = temp_dict[key]
 			for t_inf in self._addr_cls[key]:
-				t_inf.byte_size = byte_size
+				t_inf.byte_size = address_class[key]
 
 	def make_memmap(self) -> None:
 		# address_class推論
@@ -714,8 +713,6 @@ class utilDwarf:
 	def get_type_info(self, type_id:int) -> type_info:
 		# typedef
 		TAG = utilDwarf.type_info.TAG
-		# type-qualifier情報
-		is_const = None
 		# type 取得
 		if type_id not in self._type_tbl.keys():
 			# ありえないはず
@@ -734,44 +731,42 @@ class utilDwarf:
 			# child情報を結合していく
 			child_type = self._type_tbl[next_type_id]
 			if child_type.tag == utilDwarf.type_info.TAG.base:
-				if child_type.name is not None:
-					type_inf.name = child_type.name
-				if child_type.encoding is not None:
-					type_inf.encoding = child_type.encoding
-				if child_type.byte_size is not None:
-					type_inf.byte_size = child_type.byte_size
-				if child_type.params:
+				# name 上書き
+				type_inf.name = self.get_type_info_select_overwrite(type_inf.name, child_type.name)
+				# encoding 上書き
+				type_inf.encoding = self.get_type_info_select_overwrite(type_inf.encoding, child_type.encoding)
+				# byte_size 選択
+				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
+				# params 選択
+				if not type_inf.params and child_type.params:
 					type_inf.params = child_type.params
-				if type_inf.tag is None:
-					type_inf.tag = child_type.tag
+				# tag 上書き
+				type_inf.tag = self.get_type_info_select(type_inf.tag, child_type.tag)
 			elif child_type.tag == utilDwarf.type_info.TAG.typedef:
-				if type_inf.name is None and child_type.name is not None:
-					type_inf.name = child_type.name
-			elif child_type.tag == utilDwarf.type_info.TAG.struct:
-				if child_type.name is not None:
-					type_inf.name = child_type.name
-				if child_type.byte_size is not None:
-					type_inf.byte_size = child_type.byte_size
-				if child_type.member is not None:
+				# name 選択
+				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
+			elif child_type.tag in {TAG.struct, TAG.union}:
+				# name 上書き
+				type_inf.name = self.get_type_info_select_overwrite(type_inf.name, child_type.name)
+				# byte_size 選択
+				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
+				# member 選択
+				if not type_inf.member and child_type.member:
 					type_inf.member = child_type.member
-				type_inf.tag = child_type.tag
-			elif child_type.tag == utilDwarf.type_info.TAG.union:
-				if child_type.name is not None:
-					type_inf.name = child_type.name
-				if child_type.byte_size is not None:
-					type_inf.byte_size = child_type.byte_size
-				if child_type.member is not None:
-					type_inf.member = child_type.member
+				# tag 上書き
 				type_inf.tag = child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.array:
-				if child_type.range is not None:
-					type_inf.range = child_type.range
+				# range 上書き
+				type_inf.range = self.get_type_info_select(type_inf.range, child_type.range)
+				# tag 上書き
 				type_inf.tag = child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.const:
 				type_inf.const = True
 			elif child_type.tag == utilDwarf.type_info.TAG.pointer:
-				if child_type.byte_size is not None:
-					type_inf.byte_size = child_type.byte_size
+				# address_class 上書き
+				type_inf.address_class = self.get_type_info_select(type_inf.address_class, child_type.address_class)
+				# byte_size 上書き
+				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
 				type_inf.pointer = True
 			elif child_type.tag == utilDwarf.type_info.TAG.restrict:
 				type_inf.restrict = True
@@ -784,3 +779,20 @@ class utilDwarf:
 			next_type_id = child_type.child_type
 		return type_inf
 
+	def get_type_info_select_overwrite(self, org, new) -> None:
+		"""
+		new が None でなければ上書きする
+		"""
+		if new is not None:
+			return new
+		else:
+			return org
+
+	def get_type_info_select(self, org, new) -> None:
+		"""
+		new が None でなければ、org が None のとき値を設定する
+		"""
+		if org is None and new is not None:
+			return new
+		else:
+			return org

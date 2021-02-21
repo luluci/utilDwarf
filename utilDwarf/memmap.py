@@ -8,6 +8,7 @@ class memmap:
 			array = enum.auto()			# array
 			struct = enum.auto()		# struct
 			union = enum.auto()			# union
+			func = enum.auto()			# function type
 
 		def __init__(self) -> None:
 			self.tag = None				# 変数タイプタグ

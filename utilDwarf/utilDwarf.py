@@ -29,10 +29,11 @@ class utilDwarf:
 
 	class type_info:
 		class TAG(enum.Enum):
-			base = enum.auto()			# primitive(function/function-pointer含む) type
+			base = enum.auto()			# primitive type
 			array = enum.auto()			# array
 			struct = enum.auto()		# struct
 			union = enum.auto()			# union
+			func = enum.auto()			# function type
 			parameter = enum.auto()		# parameter
 			typedef = enum.auto()		# typedef
 			const = enum.auto()			# const
@@ -325,7 +326,7 @@ class utilDwarf:
 
 	def analyze_die_TAG_subroutine_type(self, die: DIE):
 		# type_info取得
-		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.func)
 		for at in die.attributes.keys():
 			if at == "DW_AT_name":
 				type_inf.name = die.attributes[at].value.decode(self._encode)
@@ -411,7 +412,8 @@ class utilDwarf:
 		if idx not in self._type_tbl.keys():
 			self._type_tbl[idx] = utilDwarf.type_info()
 		else:
-			print("duplicate!")
+			# print("duplicate!")
+			pass
 		type_inf = self._type_tbl[idx]
 		type_inf.tag = tag
 		return type_inf
@@ -531,6 +533,8 @@ class utilDwarf:
 			self.make_memmap_var_struct(var, t_inf)
 		elif t_inf.tag == utilDwarf.type_info.TAG.union:
 			self.make_memmap_var_struct(var, t_inf)
+		elif t_inf.tag == utilDwarf.type_info.TAG.func:
+			self.make_memmap_var_func(var, t_inf)
 		else:
 			raise Exception("unknown variable type detected.")
 
@@ -538,6 +542,18 @@ class utilDwarf:
 		# 変数情報作成
 		mem_var = memmap.var_type()
 		mem_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
+		mem_var.address = var.addr					# 配置アドレス
+		mem_var.name = var.name						# 変数名
+		# 型情報作成
+		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
+		mem_var.const = t_inf.const					# const
+		# 変数情報登録
+		self._memmap.append(mem_var)
+
+	def make_memmap_var_func(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		mem_var = memmap.var_type()
+		mem_var.tag = memmap.var_type.TAG.func		# 変数タイプタグ
 		mem_var.address = var.addr					# 配置アドレス
 		mem_var.name = var.name						# 変数名
 		# 型情報作成
@@ -575,10 +591,23 @@ class utilDwarf:
 			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
 		elif mem_inf.tag == utilDwarf.type_info.TAG.union:
 			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+		elif mem_inf.tag == utilDwarf.type_info.TAG.func:
+			self.make_memmap_var_array_each_func(parent, mem_inf, idx)
 		else:
 			raise Exception("unknown variable type detected.")
 
 	def make_memmap_var_array_each_base(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+		# 配列要素[idx]を登録
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = parent.tag
+		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
+		memmap_var.name = "[" + str(idx) + "]"
+		memmap_var.byte_size = mem_inf.byte_size
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+	def make_memmap_var_array_each_func(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
 		# 配列要素[idx]を登録
 		# 変数情報作成
 		memmap_var = memmap.var_type()
@@ -652,6 +681,8 @@ class utilDwarf:
 			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
 		elif mem_t_inf.tag == utilDwarf.type_info.TAG.union:
 			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+		elif mem_t_inf.tag == utilDwarf.type_info.TAG.func:
+			self.make_memmap_var_member_func(parent, mem_inf, mem_t_inf)
 		else:
 			raise Exception("unknown variable type detected.")
 
@@ -666,6 +697,18 @@ class utilDwarf:
 			memmap_var.bit_size = member_inf.bit_size							# ビットサイズ
 			memmap_var.bit_offset = member_inf.bit_offset						# ビットオフセット
 			# member_inf.member_inf  # ビットフィールドのみ存在? パディングを含むバイト単位サイズ, バイト境界をまたぐ(bit7-8とか)と2バイトになる
+		# 型情報作成
+		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		# 変数情報登録
+		parent.member.append(memmap_var)
+
+	def make_memmap_var_member_func(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = memmap.var_type()
+		memmap_var.tag = memmap.var_type.TAG.func								# 変数タイプタグ
+		memmap_var.address = parent.address + member_inf.member_location		# アドレス
+		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
+		memmap_var.name = member_inf.name										# メンバ名
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		# 変数情報登録
@@ -737,11 +780,16 @@ class utilDwarf:
 				type_inf.encoding = self.get_type_info_select_overwrite(type_inf.encoding, child_type.encoding)
 				# byte_size 選択
 				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
+				# tag 上書き
+				type_inf.tag = self.get_type_info_select(type_inf.tag, child_type.tag)
+			elif child_type.tag == utilDwarf.type_info.TAG.func:
+				# byte_size 選択
+				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
 				# params 選択
 				if not type_inf.params and child_type.params:
 					type_inf.params = child_type.params
 				# tag 上書き
-				type_inf.tag = self.get_type_info_select(type_inf.tag, child_type.tag)
+				type_inf.tag = child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.typedef:
 				# name 選択
 				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)

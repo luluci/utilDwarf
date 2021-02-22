@@ -27,6 +27,13 @@ class utilDwarf:
 			self.type = None
 			self.addr = None
 
+	class func_info:
+		def __init__(self) -> None:
+			self.name = None
+			self.return_type = None
+			self.addr = None
+			self.params = []
+
 	class type_info:
 		class TAG(enum.Enum):
 			base = enum.auto()			# primitive type
@@ -67,6 +74,7 @@ class utilDwarf:
 		self._arch = None
 		# データコンテナ初期化
 		self._global_var_tbl: List[utilDwarf.var_info] = []
+		self._func_tbl: List[utilDwarf.func_info] = []
 		self._type_tbl: Dict[int, utilDwarf.type_info] = {}
 		self._addr_cls: Dict[int, List[utilDwarf.type_info]] = {}
 		self._memmap: List[memmap] = []
@@ -130,8 +138,24 @@ class utilDwarf:
 #		print("DIE tag: " + str(die.tag))
 #		print("    offset: " + str(die.offset))
 #		print("    size  : " + str(die.size))
-		if die.tag == "DW_TAG_variable":
+		if die.tag == "DW_TAG_compile_unit":
+			print("DW_TAG_compile_unit tag.")
+		elif die.tag == "DW_TAG_dwarf_procedure":
+			print("DW_TAG_dwarf_procedure tag.")
+
+		# 変数定義
+		elif die.tag == "DW_TAG_variable":
 			self.analyze_die_TAG_variable(die)
+
+
+		elif die.tag == "DW_TAG_constant":
+			print("DW_TAG_constant.")
+
+		# 関数定義
+		elif die.tag == "DW_TAG_subprogram":
+			self.analyze_die_TAG_subprogram(die)
+
+		# 型情報
 		elif die.tag == "DW_TAG_base_type":
 			self.analyze_die_TAG_base_type(die)
 		elif die.tag == "DW_TAG_structure_type":
@@ -160,11 +184,6 @@ class utilDwarf:
 			# おそらく全部重複
 			pass
 
-		elif die.tag == "DW_TAG_subprogram":
-			# 関数
-			print("DW_TAG_subprogram tag.")
-			pass
-
 		# type-qualifier
 		elif die.tag == "DW_TAG_const_type":
 			self.analyze_die_TAG_type_qualifier(die, utilDwarf.type_info.TAG.const)
@@ -177,17 +196,8 @@ class utilDwarf:
 		elif die.tag == {"DW_TAG_packed_type", "DW_TAG_reference_type", "DW_TAG_shared_type"}:
 			pass
 
-		elif die.tag == "DW_TAG_constant":
-			print("DW_TAG_constant.")
-		elif die.tag == "DW_TAG_restrict_type":
-			print("DW_TAG_restrict_type tag.")
 		elif die.tag == "DW_TAG_unspecified_type":
 			print("DW_TAG_unspecified_type tag.")
-
-		elif die.tag == "DW_TAG_compile_unit":
-			print("DW_TAG_compile_unit tag.")
-		elif die.tag == "DW_TAG_dwarf_procedure":
-			print("DW_TAG_dwarf_procedure tag.")
 
 		else:
 			if die.tag is not None:
@@ -341,20 +351,26 @@ class utilDwarf:
 		if die.has_children:
 			child: DIE
 			for child in die.iter_children():
-				if child.tag == "DW_TAG_formal_parameter":
-					self.analyze_die_TAG_formal_parameter(child, type_inf)
-				elif child.tag == "DW_TAG_unspecified_parameters":
-					pass
+				param_inf = self.analyze_parameter(child)
+				type_inf.params.append(param_inf)
 
-	def analyze_die_TAG_formal_parameter(self, param: DIE, t_inf: type_info):
+	def analyze_parameter(self, die:DIE) -> type_info:
+		if die.tag == "DW_TAG_formal_parameter":
+			return self.analyze_die_TAG_formal_parameter(die)
+		elif die.tag == "DW_TAG_unspecified_parameters":
+			return None
+
+
+	def analyze_die_TAG_formal_parameter(self, param: DIE) -> type_info:
 		# type要素追加
 		param_inf = utilDwarf.type_info()
-		t_inf.params.append(param_inf)
 		param_inf.tag = utilDwarf.type_info.TAG.parameter
 		# 引数情報をtype_infoに格納
 		for attr in param.attributes.keys():
 			if attr == "DW_AT_type":
 				param_inf.child_type = param.attributes[attr].value
+		# 
+		return param_inf
 
 
 	def analyze_die_TAG_type_qualifier(self, die: DIE, tag: type_info.TAG):
@@ -458,6 +474,56 @@ class utilDwarf:
 	def analyze_die_AT_location(self, attr: AttributeValue):
 		# location解析
 		return self.analyze_die_AT_FORM(attr.form, attr.value)
+
+	def analyze_die_TAG_subprogram(self, die: DIE):
+		f_inf: utilDwarf.func_info = None
+		if "DW_AT_external" in die.attributes.keys():
+			# 関数
+			self._func_tbl.append(utilDwarf.func_info())
+			f_inf = self._func_tbl[len(self._func_tbl)-1]
+		else:
+			# ？
+			return
+		# AT取得
+		call_convention = 1		# デフォルトがDW_CC_normal
+		for at in die.attributes.keys():
+			attr: AttributeValue = die.attributes[at]
+			if at == "DW_AT_external":
+				pass
+			elif at == "DW_AT_name":
+				f_inf.name = die.attributes[at].value.decode(self._encode)
+			elif at == "DW_AT_type":
+				f_inf.return_type = self.analyze_die_AT_FORM(attr.form, attr.value)
+			elif at == "DW_AT_calling_convention":
+				call_convention = die.attributes[at].value
+			elif at == "DW_AT_decl_file":
+				pass
+			elif at == "DW_AT_decl_line":
+				pass
+			elif at == "DW_AT_low_pc":
+				pass
+			elif at == "DW_AT_high_pc":
+				pass
+			elif at == "DW_AT_frame_base":
+				pass
+			elif at == "DW_AT_return_addr":
+				pass
+			else:
+				print("subprogram:?:" + at)
+		# child check
+		if die.has_children:
+			child: DIE
+			for child in die.iter_children():
+				if child.tag == "DW_TAG_formal_parameter":
+					param_inf = self.analyze_parameter(child)
+					f_inf.params.append(param_inf)
+				elif child.tag == "DW_TAG_unspecified_parameters":
+					param_inf = self.analyze_parameter(child)
+					f_inf.params.append(param_inf)
+				elif child.tag == "DW_TAG_variable":
+					pass
+				
+
 
 	def analyze_die_AT_FORM(self, form: str, value: any):
 		if form == "DW_FORM_ref_addr":

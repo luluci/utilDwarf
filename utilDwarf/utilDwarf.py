@@ -129,9 +129,22 @@ class utilDwarf:
 #		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
 #		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
+		# .debug_line解析
+		line_program = self._dwarf_info.line_program_for_CU(cu)
+		if line_program is not None:
+			self._debug_line = line_program
+			self.analyze_line(line_program)
+
+		# DIE解析
 		die: DIE
 		for die in cu.iter_DIEs():
 			self.analyze_die(die)
+
+	def analyze_line(self, line: LineProgram):
+		for lpe in line.get_entries():
+			if not lpe.state or lpe.state.file == 0:
+				continue
+			filename = lpe.state.file
 
 	def analyze_die(self, die: DIE):
 		# debug comment
@@ -435,28 +448,22 @@ class utilDwarf:
 		return type_inf
 
 	def analyze_die_TAG_variable(self, die:DIE):
-		var_ref: utilDwarf.var_info = None
-		if "DW_AT_external" in die.attributes.keys():
-			# グローバル変数
-			self._global_var_tbl.append(utilDwarf.var_info())
-			var_ref = self._global_var_tbl[len(self._global_var_tbl)-1]
-		else:
-			# ローカル変数
-			return
-		#
+		var = utilDwarf.var_info()
+		is_external = False
+		# AT解析
 		for at in die.attributes.keys():
 			if at == "DW_AT_external":
-				pass
+				is_external = True
 			elif at == "DW_AT_name":
-				var_ref.name = die.attributes[at].value.decode(self._encode)
+				var.name = die.attributes[at].value.decode(self._encode)
 			elif at == "DW_AT_decl_file":
 				pass
 			elif at == "DW_AT_decl_line":
 				pass
 			elif at == "DW_AT_type":
-				var_ref.type = die.attributes[at].value
+				var.type = die.attributes[at].value
 			elif at == "DW_AT_location":
-				var_ref.addr = self.analyze_die_AT_location(die.attributes[at])
+				var.addr = self.analyze_die_AT_location(die.attributes[at])
 			elif at == "DW_AT_const_value":
 				pass
 			else:
@@ -466,6 +473,15 @@ class utilDwarf:
 			child: DIE
 			for child in die.iter_children():
 				print("unproc child.")
+		# 変数登録
+		if var.addr is not None:
+			# アドレスを持っているときグローバル変数とみなす
+			# decl_fileと.debug_line/header/file_entryのファイルも一致してるはず
+			# グローバル変数
+			self._global_var_tbl.append(var)
+		else:
+			# ローカル変数
+			return
 		# debug comment
 #		print("    name  : " + var_ref.name)
 #		print("    type  : " + str(var_ref.type))
@@ -533,6 +549,10 @@ class utilDwarf:
 		elif form == "DW_FORM_udata":
 			return value
 		elif form == "DW_FORM_data1":
+			return value
+		elif form == "DW_FORM_data2":
+			return value
+		elif form == "DW_FORM_data4":
 			return value
 		elif form == "DW_FORM_block1":
 			val_len = (1 + value[0]) + 1
@@ -891,6 +911,9 @@ class utilDwarf:
 				raise Exception("undetected type appeared.")
 			# child要素チェック
 			next_type_id = child_type.child_type
+		# tagがNoneのとき、void型と推測
+		if type_inf.tag is None:
+			type_inf.tag = utilDwarf.type_info.TAG.base
 		return type_inf
 
 	def get_type_info_select_overwrite(self, org, new) -> None:

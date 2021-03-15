@@ -21,3 +21,5 @@ class memmap:
 			self.array_size = None		# 配列宣言時の要素数
 			self.member = []			# struct/union/classにおけるメンバ情報(mem_var_type)
 			self.const = None			# const定数
+			self.decl_file = None
+			self.decl_line = None

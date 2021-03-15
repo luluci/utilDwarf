@@ -20,12 +20,17 @@ class utilDwarf:
 			self.debug_abbrev_offset = None
 			self.unit_length = None
 			self.address_size = None
+			# 0 は「ファイル無し」定義なのでNoneを詰めておく
+			self.file_list = [None]
+			self.include_dir_list = []
 
 	class var_info:
 		def __init__(self) -> None:
 			self.name = None
 			self.type = None
 			self.addr = None
+			self.decl_file = None
+			self.decl_line = None
 
 	class func_info:
 		def __init__(self) -> None:
@@ -67,10 +72,12 @@ class utilDwarf:
 			self.restrict = None
 			self.volatile = None
 			self.params = []
+			self.decl_file = None
+			self.decl_line = None
 
-	def __init__(self, path: pathlib.Path):
+	def __init__(self, path: pathlib.Path, encoding:str = 'utf-8'):
 		# 文字コード
-		self._encode = "ShiftJIS"
+		self._encoding = encoding
 		self._arch = None
 		# データコンテナ初期化
 		self._global_var_tbl: List[utilDwarf.var_info] = []
@@ -109,12 +116,12 @@ class utilDwarf:
 		top_die = cu.get_top_DIE()
 		# コンパイル時ディレクトリ情報を取得
 		if "DW_AT_comp_dir" in top_die.attributes.keys():
-			self._curr_cu_info.compile_dir = top_die.attributes["DW_AT_comp_dir"].value.decode(self._encode)
+			self._curr_cu_info.compile_dir = top_die.attributes["DW_AT_comp_dir"].value.decode(self._encoding)
 		else:
 			self._curr_cu_info.compile_dir = ""
 		# ファイル名取得
 		if "DW_AT_name" in top_die.attributes.keys():
-			self._curr_cu_info.filename = top_die.attributes["DW_AT_name"].value.decode(self._encode)
+			self._curr_cu_info.filename = top_die.attributes["DW_AT_name"].value.decode(self._encoding)
 		else:
 			self._curr_cu_info.filename = ""
 		# ファイル情報
@@ -141,10 +148,21 @@ class utilDwarf:
 			self.analyze_die(die)
 
 	def analyze_line(self, line: LineProgram):
-		for lpe in line.get_entries():
-			if not lpe.state or lpe.state.file == 0:
+		# header
+		# file_entry
+		for entry in line.header.file_entry:
+			self._curr_cu_info.file_list.append(entry.name.decode(self._encoding))
+		# include_directory
+		for path in line.header.include_directory:
+			self._curr_cu_info.include_dir_list.append(path.decode(self._encoding))
+		# line program entry
+		"""
+		for entry in line.get_entries():
+			if not entry.state or entry.state.file == 0:
+				# entryが空、または、ファイルがない
 				continue
-			filename = lpe.state.file
+			file_no = entry.state.file
+		"""
 
 	def analyze_die(self, die: DIE):
 		# debug comment
@@ -250,13 +268,14 @@ class utilDwarf:
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
-				type_inf.name = attr.value.decode(self._encode)
+				type_inf.name = attr.value.decode(self._encoding)
 			elif at == "DW_AT_byte_size":
 				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
-				pass
+				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				pass
+				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
 				print("struct/union:?:" + at)
 		# child取得
@@ -287,7 +306,7 @@ class utilDwarf:
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
-				type_inf.name = attr.value.decode(self._encode)
+				type_inf.name = attr.value.decode(self._encoding)
 			elif at == "DW_AT_type":
 				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_data_member_location":
@@ -299,9 +318,10 @@ class utilDwarf:
 			elif at == "DW_AT_bit_size":
 				type_inf.bit_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
-				pass
+				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				pass
+				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
 				print("unknown attribute detected: " + at)
 		# child check
@@ -352,7 +372,7 @@ class utilDwarf:
 		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.func)
 		for at in die.attributes.keys():
 			if at == "DW_AT_name":
-				type_inf.name = die.attributes[at].value.decode(self._encode)
+				type_inf.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_type":
 				# 返り値型
 				type_inf.result_type = die.attributes[at].value
@@ -393,7 +413,7 @@ class utilDwarf:
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
-				type_inf.name = attr.value.decode(self._encode)
+				type_inf.name = attr.value.decode(self._encoding)
 			elif at == "DW_AT_type":
 				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_address_class":
@@ -419,13 +439,14 @@ class utilDwarf:
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
 			if at == "DW_AT_name":
-				type_inf.name = attr.value.decode(self._encode)
+				type_inf.name = attr.value.decode(self._encoding)
 			elif at == "DW_AT_type":
 				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
-				pass
+				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				pass
+				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
 				print("typedef:?:" + at)
 		# child check
@@ -452,14 +473,16 @@ class utilDwarf:
 		is_external = False
 		# AT解析
 		for at in die.attributes.keys():
+			attr = die.attributes[at]
 			if at == "DW_AT_external":
 				is_external = True
 			elif at == "DW_AT_name":
-				var.name = die.attributes[at].value.decode(self._encode)
+				var.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_decl_file":
-				pass
+				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				var.decl_file = self._curr_cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				pass
+				var.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_type":
 				var.type = die.attributes[at].value
 			elif at == "DW_AT_location":
@@ -507,15 +530,16 @@ class utilDwarf:
 			if at == "DW_AT_external":
 				pass
 			elif at == "DW_AT_name":
-				f_inf.name = die.attributes[at].value.decode(self._encode)
+				f_inf.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_type":
 				f_inf.return_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_calling_convention":
 				call_convention = die.attributes[at].value
 			elif at == "DW_AT_decl_file":
-				pass
+				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				f_inf.decl_file = self._curr_cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				pass
+				f_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_low_pc":
 				pass
 			elif at == "DW_AT_high_pc":
@@ -545,7 +569,7 @@ class utilDwarf:
 		if form == "DW_FORM_ref_addr":
 			return value
 		elif form == "DW_FORM_string":
-			return value.decode(self._encode)
+			return value.decode(self._encoding)
 		elif form == "DW_FORM_udata":
 			return value
 		elif form == "DW_FORM_data1":
@@ -630,6 +654,8 @@ class utilDwarf:
 		mem_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
 		mem_var.address = var.addr					# 配置アドレス
 		mem_var.name = var.name						# 変数名
+		mem_var.decl_file = var.decl_file
+		mem_var.decl_line = var.decl_line
 		# 型情報作成
 		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		mem_var.const = t_inf.const					# const
@@ -642,6 +668,8 @@ class utilDwarf:
 		mem_var.tag = memmap.var_type.TAG.func		# 変数タイプタグ
 		mem_var.address = var.addr					# 配置アドレス
 		mem_var.name = var.name						# 変数名
+		mem_var.decl_file = var.decl_file
+		mem_var.decl_line = var.decl_line
 		# 型情報作成
 		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		mem_var.const = t_inf.const					# const
@@ -654,6 +682,8 @@ class utilDwarf:
 		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
 		memmap_var.address = var.addr					# 配置アドレス
 		memmap_var.name = var.name						# 変数名
+		memmap_var.decl_file = var.decl_file
+		memmap_var.decl_line = var.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.array_size = t_inf.range				# 配列要素数
@@ -690,6 +720,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
+		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -701,6 +733,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
+		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -713,6 +747,8 @@ class utilDwarf:
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
 		memmap_var.array_size = mem_inf.range
+		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -729,6 +765,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
+		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -744,6 +782,8 @@ class utilDwarf:
 		memmap_var.tag = memmap.var_type.TAG.struct		# 変数タイプタグ
 		memmap_var.address = var.addr					# 配置アドレス
 		memmap_var.name = var.name						# 変数名
+		memmap_var.decl_file = var.decl_file
+		memmap_var.decl_line = var.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.const = t_inf.const					# const
@@ -783,6 +823,8 @@ class utilDwarf:
 			memmap_var.bit_size = member_inf.bit_size							# ビットサイズ
 			memmap_var.bit_offset = member_inf.bit_offset						# ビットオフセット
 			# member_inf.member_inf  # ビットフィールドのみ存在? パディングを含むバイト単位サイズ, バイト境界をまたぐ(bit7-8とか)と2バイトになる
+		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		# 変数情報登録
@@ -795,6 +837,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
+		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		# 変数情報登録
@@ -807,6 +851,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
+		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		memmap_var.array_size = t_inf.range										# 配列要素数
@@ -827,6 +873,8 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
+		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		# 変数情報登録

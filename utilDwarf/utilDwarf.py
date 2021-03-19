@@ -1,19 +1,27 @@
 import pathlib
 import enum
 import copy
-from typing import List, Dict, Tuple
+from typing import Container, List, Dict, Tuple
 from elftools.elf.elffile import ELFFile
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import AttributeValue, DIE
 from elftools.dwarf.lineprogram import (LineProgram, LineProgramEntry)
 from elftools.dwarf.dwarfinfo import DWARFInfo
 from elftools.dwarf.callframe import (RegisterRule, CFARule)
+from elftools.construct.lib.container import Container as elftools_container
 
 from .memmap import memmap
 
 class utilDwarf:
 
 	class cu_info:
+
+		class file_entry:
+			def __init__(self) -> None:
+				self.dir_path = None
+				self.filename = None
+				self.proj_rel_path = None
+
 		def __init__(self) -> None:
 			self.compile_dir = ""
 			self.filename = ""
@@ -21,15 +29,15 @@ class utilDwarf:
 			self.unit_length = None
 			self.address_size = None
 			# 0 は「ファイル無し」定義なのでNoneを詰めておく
-			self.file_list = [None]
-			self.include_dir_list = []
+			self.file_list: List[utilDwarf.cu_info.file_entry] = []
+			self.include_dir_list: List[str] = []
 
 	class var_info:
 		def __init__(self) -> None:
 			self.name = None
 			self.type = None
 			self.addr = None
-			self.decl_file = None
+			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
 
 	class func_info:
@@ -72,7 +80,7 @@ class utilDwarf:
 			self.restrict = None
 			self.volatile = None
 			self.params = []
-			self.decl_file = None
+			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
 
 	def __init__(self, path: pathlib.Path, encoding:str = 'utf-8'):
@@ -111,31 +119,36 @@ class utilDwarf:
 
 	def analyze_cu(self, cu:CompileUnit):
 		# CompileUnit情報を取得
-		self._curr_cu_info = utilDwarf.cu_info()
+		self._cu_info = utilDwarf.cu_info()
 		# CompileUnit=fileなので(?)、ファイル名、パスを取得
 		top_die = cu.get_top_DIE()
 		# コンパイル時ディレクトリ情報を取得
 		if "DW_AT_comp_dir" in top_die.attributes.keys():
-			self._curr_cu_info.compile_dir = top_die.attributes["DW_AT_comp_dir"].value.decode(self._encoding)
+			self._cu_info.compile_dir = top_die.attributes["DW_AT_comp_dir"].value.decode(self._encoding)
 		else:
-			self._curr_cu_info.compile_dir = ""
+			self._cu_info.compile_dir = "."
 		# ファイル名取得
 		if "DW_AT_name" in top_die.attributes.keys():
-			self._curr_cu_info.filename = top_die.attributes["DW_AT_name"].value.decode(self._encoding)
+			self._cu_info.filename = top_die.attributes["DW_AT_name"].value.decode(self._encoding)
 		else:
-			self._curr_cu_info.filename = ""
+			self._cu_info.filename = ""
 		# ファイル情報
-		print("CU file: " + self._curr_cu_info.compile_dir + "\\" + self._curr_cu_info.filename)
+		print("CU file: " + self._cu_info.compile_dir + "\\" + self._cu_info.filename)
 
 		# CompileUnitヘッダ解析
-		self._curr_cu_info.address_size = cu.header['address_size']
-		self._curr_cu_info.debug_abbrev_offset = cu.header['debug_abbrev_offset']
-		self._curr_cu_info.unit_length = cu.header['unit_length']
+		self._cu_info.address_size = cu.header['address_size']
+		self._cu_info.debug_abbrev_offset = cu.header['debug_abbrev_offset']
+		self._cu_info.unit_length = cu.header['unit_length']
 		# debug comment
 #		print("    address_size       : " + str(self._curr_cu_info.address_size))
 #		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
 #		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
+		# file_entryは 0:存在しない になるので、Noneを入れておく
+		self._cu_info.file_list.append(None)
+		# include_directory は 0:カレントディレクトリ？ になるので、
+		# DW_AT_comp_dirを入れておく
+		self._cu_info.include_dir_list.append(self._cu_info.compile_dir)
 		# .debug_line解析
 		line_program = self._dwarf_info.line_program_for_CU(cu)
 		if line_program is not None:
@@ -149,12 +162,27 @@ class utilDwarf:
 
 	def analyze_line(self, line: LineProgram):
 		# header
-		# file_entry
-		for entry in line.header.file_entry:
-			self._curr_cu_info.file_list.append(entry.name.decode(self._encoding))
 		# include_directory
 		for path in line.header.include_directory:
-			self._curr_cu_info.include_dir_list.append(path.decode(self._encoding))
+			self._cu_info.include_dir_list.append(path.decode(self._encoding))
+		# file_entry
+		for entry in line.header.file_entry:
+			entry: elftools_container
+			file = utilDwarf.cu_info.file_entry()
+			# name
+			file.filename = entry.name.decode(self._encoding)
+			# dir_index
+			idx = entry.dir_index
+			file.dir_path = self._cu_info.include_dir_list[idx]
+			# DW_AT_comp_dirからの相対パス
+			fpath = pathlib.Path(file.dir_path) / file.filename
+			# システムインクルードパスは相対パス設定なしとする
+			try:
+				file.proj_rel_path = str(fpath.relative_to(self._cu_info.compile_dir))
+			except:
+				file.proj_rel_path = None
+			# file_entry登録
+			self._cu_info.file_list.append(file)
 		# line program entry
 		"""
 		for entry in line.get_entries():
@@ -273,7 +301,7 @@ class utilDwarf:
 				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
-				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
+				type_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
@@ -319,7 +347,7 @@ class utilDwarf:
 				type_inf.bit_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
-				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
+				type_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
@@ -444,7 +472,7 @@ class utilDwarf:
 				type_inf.child_type = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
-				type_inf.decl_file = self._curr_cu_info.file_list[file_no]
+				type_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
@@ -480,7 +508,7 @@ class utilDwarf:
 				var.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
-				var.decl_file = self._curr_cu_info.file_list[file_no]
+				var.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
 				var.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_type":
@@ -537,7 +565,7 @@ class utilDwarf:
 				call_convention = die.attributes[at].value
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
-				f_inf.decl_file = self._curr_cu_info.file_list[file_no]
+				f_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
 				f_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_low_pc":
@@ -654,7 +682,7 @@ class utilDwarf:
 		mem_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
 		mem_var.address = var.addr					# 配置アドレス
 		mem_var.name = var.name						# 変数名
-		mem_var.decl_file = var.decl_file
+		mem_var.decl_file = var.decl_file.filename
 		mem_var.decl_line = var.decl_line
 		# 型情報作成
 		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
@@ -668,7 +696,7 @@ class utilDwarf:
 		mem_var.tag = memmap.var_type.TAG.func		# 変数タイプタグ
 		mem_var.address = var.addr					# 配置アドレス
 		mem_var.name = var.name						# 変数名
-		mem_var.decl_file = var.decl_file
+		mem_var.decl_file = var.decl_file.filename
 		mem_var.decl_line = var.decl_line
 		# 型情報作成
 		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
@@ -682,7 +710,7 @@ class utilDwarf:
 		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
 		memmap_var.address = var.addr					# 配置アドレス
 		memmap_var.name = var.name						# 変数名
-		memmap_var.decl_file = var.decl_file
+		memmap_var.decl_file = var.decl_file.filename
 		memmap_var.decl_line = var.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
@@ -720,7 +748,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
-		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
@@ -733,7 +761,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
-		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
@@ -747,7 +775,7 @@ class utilDwarf:
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
 		memmap_var.array_size = mem_inf.range
-		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
@@ -765,7 +793,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + (mem_inf.byte_size * idx)
 		memmap_var.name = "[" + str(idx) + "]"
 		memmap_var.byte_size = mem_inf.byte_size
-		memmap_var.decl_file = mem_inf.decl_file
+		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
 		# 変数情報登録
 		parent.member.append(memmap_var)
@@ -782,7 +810,7 @@ class utilDwarf:
 		memmap_var.tag = memmap.var_type.TAG.struct		# 変数タイプタグ
 		memmap_var.address = var.addr					# 配置アドレス
 		memmap_var.name = var.name						# 変数名
-		memmap_var.decl_file = var.decl_file
+		memmap_var.decl_file = var.decl_file.filename
 		memmap_var.decl_line = var.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
@@ -823,7 +851,7 @@ class utilDwarf:
 			memmap_var.bit_size = member_inf.bit_size							# ビットサイズ
 			memmap_var.bit_offset = member_inf.bit_offset						# ビットオフセット
 			# member_inf.member_inf  # ビットフィールドのみ存在? パディングを含むバイト単位サイズ, バイト境界をまたぐ(bit7-8とか)と2バイトになる
-		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_file = member_inf.decl_file.filename
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
@@ -837,7 +865,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
-		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_file = member_inf.decl_file.filename
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
@@ -851,7 +879,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
-		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_file = member_inf.decl_file.filename
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
@@ -873,7 +901,7 @@ class utilDwarf:
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
-		memmap_var.decl_file = member_inf.decl_file
+		memmap_var.decl_file = member_inf.decl_file.filename
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ

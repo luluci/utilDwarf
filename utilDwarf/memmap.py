@@ -23,3 +23,4 @@ class memmap:
 			self.const = None			# const定数
 			self.decl_file = None
 			self.decl_line = None
+			self.external = []			# 外部定義情報

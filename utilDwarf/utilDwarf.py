@@ -39,6 +39,9 @@ class utilDwarf:
 			self.addr = None
 			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
+			self.not_declaration = None		# declarationなし. 不完全型等
+			self.extern = None				# 外部結合, extern宣言
+			self.external_file = None		# ファイル外定義(cファイル以外、hファイル等で定義)
 
 	class func_info:
 		def __init__(self) -> None:
@@ -498,23 +501,28 @@ class utilDwarf:
 
 	def analyze_die_TAG_variable(self, die:DIE):
 		var = utilDwarf.var_info()
-		is_external = False
 		# AT解析
 		for at in die.attributes.keys():
 			attr = die.attributes[at]
 			if at == "DW_AT_external":
-				is_external = True
+				var.extern = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_name":
 				var.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_decl_file":
 				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				# ファイル情報取得
 				var.decl_file = self._cu_info.file_list[file_no]
+				# ファイルが現在解析中のものでない
+				if file_no != 1:
+					var.external_file = True
 			elif at == "DW_AT_decl_line":
 				var.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_type":
 				var.type = die.attributes[at].value
 			elif at == "DW_AT_location":
 				var.addr = self.analyze_die_AT_location(die.attributes[at])
+			elif at == "DW_AT_declaration":
+				var.not_declaration = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_const_value":
 				pass
 			else:
@@ -526,13 +534,19 @@ class utilDwarf:
 				print("unproc child.")
 		# 変数登録
 		if var.addr is not None:
-			# アドレスを持っているときグローバル変数とみなす
-			# decl_fileと.debug_line/header/file_entryのファイルも一致してるはず
-			# グローバル変数
-			self._global_var_tbl.append(var)
+			# アドレスを持っているとき
+			if var.extern is not None:
+				# 外部結合を持っているとき
+				# グローバル変数
+				self._global_var_tbl.append(var)
+			else:
+				# 外部結合を持たない
+				# ローカル変数等
+				pass
 		else:
-			# ローカル変数
-			return
+			# アドレスを持たない
+			# ローカル変数, 定数, etc
+			pass
 		# debug comment
 #		print("    name  : " + var_ref.name)
 #		print("    type  : " + str(var_ref.type))
@@ -596,6 +610,8 @@ class utilDwarf:
 	def analyze_die_AT_FORM(self, form: str, value: any):
 		if form == "DW_FORM_ref_addr":
 			return value
+		elif form == "DW_FORM_flag":
+			return value
 		elif form == "DW_FORM_string":
 			return value.decode(self._encoding)
 		elif form == "DW_FORM_udata":
@@ -652,6 +668,8 @@ class utilDwarf:
 		self.analyze_address_class()
 		# メモリマップ初期化
 		self._memmap = []
+		# 重複チェックdict
+		self._memmap_dup = {}
 		# グローバル変数をすべてチェック
 		for var in self._global_var_tbl:
 			# 型情報取得
@@ -676,38 +694,27 @@ class utilDwarf:
 		else:
 			raise Exception("unknown variable type detected.")
 
-	def make_memmap_var_base(self, var: var_info, t_inf: type_info):
-		# 変数情報作成
-		mem_var = memmap.var_type()
-		mem_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
-		mem_var.address = var.addr					# 配置アドレス
-		mem_var.name = var.name						# 変数名
-		mem_var.decl_file = var.decl_file.filename
-		mem_var.decl_line = var.decl_line
-		# 型情報作成
-		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
-		mem_var.const = t_inf.const					# const
-		# 変数情報登録
-		self._memmap.append(mem_var)
+	def make_memmap_var(self, var: var_info, t_inf: type_info) -> memmap.var_type:
+		"""
+		memmap_var作成関数
+		アドレス重複チェックも実施する
+		"""
+		memmap_var: memmap.var_type = None
+		# 重複チェック
+		if var.addr in self._memmap_dup.keys():
+			# 重複あり
+			base_var = self._memmap_dup[var.addr]
+			memmap_var = memmap.var_type()
+			base_var.external.append(memmap_var)
+		else:
+			# 重複無し
+			# 変数情報作成
+			memmap_var = memmap.var_type()
+			self._memmap_dup[var.addr] = memmap_var
+			# 変数情報登録
+			self._memmap.append(memmap_var)
 
-	def make_memmap_var_func(self, var: var_info, t_inf: type_info):
-		# 変数情報作成
-		mem_var = memmap.var_type()
-		mem_var.tag = memmap.var_type.TAG.func		# 変数タイプタグ
-		mem_var.address = var.addr					# 配置アドレス
-		mem_var.name = var.name						# 変数名
-		mem_var.decl_file = var.decl_file.filename
-		mem_var.decl_line = var.decl_line
-		# 型情報作成
-		mem_var.byte_size = t_inf.byte_size			# 宣言型サイズ
-		mem_var.const = t_inf.const					# const
-		# 変数情報登録
-		self._memmap.append(mem_var)
-
-	def make_memmap_var_array(self, var: var_info, t_inf: type_info):
-		# 変数情報作成
-		memmap_var = memmap.var_type()
-		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
+		# 共通情報作成
 		memmap_var.address = var.addr					# 配置アドレス
 		memmap_var.name = var.name						# 変数名
 		memmap_var.decl_file = var.decl_file.filename
@@ -716,8 +723,24 @@ class utilDwarf:
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.array_size = t_inf.range				# 配列要素数
 		memmap_var.const = t_inf.const					# const
-		# 変数情報登録
-		self._memmap.append(memmap_var)
+		#
+		return memmap_var
+
+	def make_memmap_var_base(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = self.make_memmap_var(var, t_inf)
+		memmap_var.tag = memmap.var_type.TAG.base		# 変数タイプタグ
+
+
+	def make_memmap_var_func(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = self.make_memmap_var(var, t_inf)
+		memmap_var.tag = memmap.var_type.TAG.func		# 変数タイプタグ
+
+	def make_memmap_var_array(self, var: var_info, t_inf: type_info):
+		# 変数情報作成
+		memmap_var = self.make_memmap_var(var, t_inf)
+		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
 
 		# 配列の各idxを個別にmemberとして登録
 		member_t_inf = self.get_type_info(t_inf.child_type)

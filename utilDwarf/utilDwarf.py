@@ -1,3 +1,4 @@
+from os import O_NOINHERIT
 import pathlib
 import enum
 import copy
@@ -137,6 +138,8 @@ class utilDwarf:
 		# elfファイルを開く
 		self._path = path
 		self._open()
+		# debug情報
+		self._debug_warning = False
 
 	def _open(self) -> None:
 		# pathチェック
@@ -174,7 +177,8 @@ class utilDwarf:
 		else:
 			self._cu_info.filename = ""
 		# ファイル情報
-		print("CU file: " + self._cu_info.compile_dir + "\\" + self._cu_info.filename)
+		if self._debug_warning:
+			print("CU file: " + self._cu_info.compile_dir + "\\" + self._cu_info.filename)
 
 		# CompileUnitヘッダ解析
 		self._cu_info.address_size = cu.header['address_size']
@@ -239,9 +243,11 @@ class utilDwarf:
 #		print("    offset: " + str(die.offset))
 #		print("    size  : " + str(die.size))
 		if die.tag == "DW_TAG_compile_unit":
-			print("DW_TAG_compile_unit tag.")
+			if self._debug_warning:
+				print("DW_TAG_compile_unit tag.")
 		elif die.tag == "DW_TAG_dwarf_procedure":
-			print("DW_TAG_dwarf_procedure tag.")
+			if self._debug_warning:
+				print("DW_TAG_dwarf_procedure tag.")
 
 		# 変数定義
 		elif die.tag == "DW_TAG_variable":
@@ -249,7 +255,8 @@ class utilDwarf:
 
 
 		elif die.tag == "DW_TAG_constant":
-			print("DW_TAG_constant.")
+			if self._debug_warning:
+				print("DW_TAG_constant.")
 
 		# 関数定義
 		elif die.tag == "DW_TAG_subprogram":
@@ -297,12 +304,13 @@ class utilDwarf:
 			pass
 
 		elif die.tag == "DW_TAG_unspecified_type":
-			print("DW_TAG_unspecified_type tag.")
+			if self._debug_warning:
+				print("DW_TAG_unspecified_type tag.")
 
 		else:
 			if die.tag is not None:
-				print("unimplemented tag: " + die.tag)
-			pass
+				if self._debug_warning:
+					print("unimplemented tag: " + die.tag)
 
 	def analyze_die_TAG_base_type(self, die: DIE):
 		# type_info取得
@@ -316,12 +324,14 @@ class utilDwarf:
 			elif at == "DW_AT_byte_size":
 				type_inf.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
-				print("base_type:?:" + at)
+				if self._debug_warning:
+					print("base_type:?:" + at)
 		# child check
 		if die.has_children:
 			child: DIE
 			for child in die.iter_children():
-				print("unproc child.")
+				if self._debug_warning:
+					print("unproc child.")
 
 	def analyze_die_TAG_structure_type(self, die: DIE):
 		self.analyze_die_TAG_structure_union_type_impl(die, utilDwarf.type_info.TAG.struct)
@@ -346,7 +356,8 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
-				print("struct/union:?:" + at)
+				if self._debug_warning:
+					print("struct/union:?:" + at)
 		# child取得
 		if die.has_children:
 			self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
@@ -365,7 +376,8 @@ class utilDwarf:
 				self.analyze_die_TAG_array_type(child)
 			else:
 				# ありえないパス
-				print("?: " + child.tag)
+				if self._debug_warning:
+					print("?: " + child.tag)
 
 	def analyze_die_TAG_member(self, die: DIE) -> type_info:
 		# type_info取得
@@ -392,7 +404,8 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
-				print("unknown attribute detected: " + at)
+				if self._debug_warning:
+					print("unknown attribute detected: " + at)
 		# child check
 		if die.has_children:
 			for child in die.iter_children():
@@ -420,7 +433,8 @@ class utilDwarf:
 			elif at == "DW_AT_data_location":
 				pass
 			else:
-				print("array:?:" + at)
+				if self._debug_warning:
+					print("array:?:" + at)
 		# child check
 		if die.has_children:
 			for child in die.iter_children():
@@ -448,7 +462,8 @@ class utilDwarf:
 			elif at == "DW_AT_prototyped":
 				type_inf.prototyped = die.attributes[at].value
 			else:
-				print("subroutine_type:?:" + at)
+				if self._debug_warning:
+					print("subroutine_type:?:" + at)
 		# child check
 		if die.has_children:
 			child: DIE
@@ -491,12 +506,14 @@ class utilDwarf:
 			elif at == "DW_AT_count":
 				pass
 			else:
-				print("unknown attr: " + at)
+				if self._debug_warning:
+					print("unknown attr: " + at)
 		# child check
 		if die.has_children:
 			child: DIE
 			for child in die.iter_children():
-				print("unproc child.")
+				if self._debug_warning:
+					print("unproc child.")
 		# debug comment
 #		print("    name  : " + type_inf.name)
 #		print("    type  : " + str(type_inf.typedef))
@@ -517,12 +534,14 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
 			else:
-				print("typedef:?:" + at)
+				if self._debug_warning:
+					print("typedef:?:" + at)
 		# child check
 		if die.has_children:
 			child: DIE
 			for child in die.iter_children():
-				print("unproc child.")
+				if self._debug_warning:
+					print("unproc child.")
 		# debug comment
 #		print("    name  : " + type_inf.name)
 #		print("    type  : " + str(type_inf.typedef))
@@ -564,12 +583,14 @@ class utilDwarf:
 			elif at == "DW_AT_const_value":
 				pass
 			else:
-				print("variable:?:" + at)
+				if self._debug_warning:
+					print("variable:?:" + at)
 		# child check
 		if die.has_children:
 			child: DIE
 			for child in die.iter_children():
-				print("unproc child.")
+				if self._debug_warning:
+					print("unproc child.")
 		# 変数登録
 		if var.addr is not None:
 			# アドレスを持っているとき
@@ -632,7 +653,8 @@ class utilDwarf:
 			elif at == "DW_AT_return_addr":
 				pass
 			else:
-				print("subprogram:?:" + at)
+				if self._debug_warning:
+					print("subprogram:?:" + at)
 		# child check
 		if die.has_children:
 			child: DIE
@@ -778,6 +800,8 @@ class utilDwarf:
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.array_size = t_inf.range				# 配列要素数
 		memmap_var.const = t_inf.const					# const
+		memmap_var.pointer = t_inf.pointer				# pointer
+		memmap_var.typename = t_inf.name
 		#
 		return memmap_var
 
@@ -828,6 +852,8 @@ class utilDwarf:
 		memmap_var.byte_size = mem_inf.byte_size
 		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
+		memmap_var.typename = mem_inf.name
+		memmap_var.pointer = mem_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -841,6 +867,8 @@ class utilDwarf:
 		memmap_var.byte_size = mem_inf.byte_size
 		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
+		memmap_var.typename = mem_inf.name
+		memmap_var.pointer = mem_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -855,6 +883,8 @@ class utilDwarf:
 		memmap_var.array_size = mem_inf.range
 		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
+		memmap_var.typename = mem_inf.name
+		memmap_var.pointer = mem_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -873,6 +903,8 @@ class utilDwarf:
 		memmap_var.byte_size = mem_inf.byte_size
 		memmap_var.decl_file = mem_inf.decl_file.filename
 		memmap_var.decl_line = mem_inf.decl_line
+		memmap_var.typename = mem_inf.name
+		memmap_var.pointer = mem_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -893,6 +925,8 @@ class utilDwarf:
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size			# 宣言型サイズ
 		memmap_var.const = t_inf.const					# const
+		memmap_var.typename = t_inf.name
+		memmap_var.pointer = t_inf.pointer				# pointer
 		# 変数情報登録
 		self._memmap.append(memmap_var)
 
@@ -933,6 +967,8 @@ class utilDwarf:
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		memmap_var.typename = t_inf.name
+		memmap_var.pointer = t_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -947,6 +983,8 @@ class utilDwarf:
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		memmap_var.typename = t_inf.name
+		memmap_var.pointer = t_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -962,6 +1000,8 @@ class utilDwarf:
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		memmap_var.array_size = t_inf.range										# 配列要素数
+		memmap_var.typename = t_inf.name
+		memmap_var.pointer = t_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -983,6 +1023,8 @@ class utilDwarf:
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
+		memmap_var.typename = t_inf.name
+		memmap_var.pointer = t_inf.pointer				# pointer
 		# 変数情報登録
 		parent.member.append(memmap_var)
 
@@ -1023,6 +1065,8 @@ class utilDwarf:
 				# tag 上書き
 				type_inf.tag = self.get_type_info_select(type_inf.tag, child_type.tag)
 			elif child_type.tag == utilDwarf.type_info.TAG.func:
+				# name 選択
+				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
 				# byte_size 選択
 				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
 				# params 選択
@@ -1044,6 +1088,8 @@ class utilDwarf:
 				# tag 上書き
 				type_inf.tag = child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.array:
+				# name 選択
+				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
 				# range 上書き
 				type_inf.range = self.get_type_info_select(type_inf.range, child_type.range)
 				# tag 上書き
@@ -1068,6 +1114,8 @@ class utilDwarf:
 		# tagがNoneのとき、void型と推測
 		if type_inf.tag is None:
 			type_inf.tag = utilDwarf.type_info.TAG.base
+		if type_inf.name is None:
+			type_inf.name = "void"
 		return type_inf
 
 	def get_type_info_select_overwrite(self, org, new) -> None:

@@ -3,14 +3,51 @@ import enum
 import copy
 from typing import Container, List, Dict, Tuple
 from elftools.elf.elffile import ELFFile
+#from elftools.dwarf.structs import DWARFStructs
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import AttributeValue, DIE
 from elftools.dwarf.lineprogram import (LineProgram, LineProgramEntry)
 from elftools.dwarf.dwarfinfo import DWARFInfo
 from elftools.dwarf.callframe import (RegisterRule, CFARule)
+#from elftools.common.construct_utils import ULEB128
 from elftools.construct.lib.container import Container as elftools_container
 
 from .memmap import memmap
+
+
+class ULEB128:
+	"""
+	unsigned LEB128
+	"""
+
+	def __init__(self, values: List[int]) -> None:
+		"""
+		@value 1バイトデータ列
+		"""
+		# 初期化
+		self.value = 0
+		# 解析
+		for n_th, value in enumerate(values):
+			# 7bit目(0開始)をチェック
+			# bit演算より四則演算の方が速いらしい
+			if value / 0x80 >= 1:
+				self.value += (value % 0x80) * (2 ** (7 * (n_th)))
+			else:
+				self.value += value * (2 ** (7 * (n_th)))
+
+
+class DWARF_expression:
+
+	@staticmethod
+	def DW_OP_plus_uconst(value):
+		return ULEB128(value).value
+
+
+DW_OP = {
+	0x23: DWARF_expression.DW_OP_plus_uconst
+}
+
+
 
 class utilDwarf:
 
@@ -37,6 +74,7 @@ class utilDwarf:
 			self.name = None
 			self.type = None
 			self.addr = None
+			self.loclistptr = None
 			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
 			self.not_declaration = None		# declarationなし. 不完全型等
@@ -520,7 +558,7 @@ class utilDwarf:
 			elif at == "DW_AT_type":
 				var.type = die.attributes[at].value
 			elif at == "DW_AT_location":
-				var.addr = self.analyze_die_AT_location(die.attributes[at])
+				self.analyze_die_AT_location(var, die.attributes[at])
 			elif at == "DW_AT_declaration":
 				var.not_declaration = self.analyze_die_AT_FORM(attr.form, attr.value)
 			elif at == "DW_AT_const_value":
@@ -535,14 +573,8 @@ class utilDwarf:
 		# 変数登録
 		if var.addr is not None:
 			# アドレスを持っているとき
-			if var.extern is not None:
-				# 外部結合を持っているとき
-				# グローバル変数
-				self._global_var_tbl.append(var)
-			else:
-				# 外部結合を持たない
-				# ローカル変数等
-				pass
+			# グローバル変数
+			self._global_var_tbl.append(var)
 		else:
 			# アドレスを持たない
 			# ローカル変数, 定数, etc
@@ -552,9 +584,18 @@ class utilDwarf:
 #		print("    type  : " + str(var_ref.type))
 #		print("    loca  : " + str(var_ref.addr))
 
-	def analyze_die_AT_location(self, attr: AttributeValue):
-		# location解析
-		return self.analyze_die_AT_FORM(attr.form, attr.value)
+	def analyze_die_AT_location(self, var: var_info, attr: AttributeValue):
+		# 2.6 Location Descriptions
+		value = self.analyze_die_AT_FORM(attr.form, attr.value)
+		if attr.form.startswith('DW_FORM_block'):
+			# Simple location descriptions
+			var.addr = value
+		elif attr.form in ('DW_FORM_data4', 'DW_FORM_data8'):
+			# Location lists
+			var.loclistptr = value
+		else:
+			raise Exception("unimplemented AT_localtion form: " + attr.form)
+
 
 	def analyze_die_TAG_subprogram(self, die: DIE):
 		f_inf: utilDwarf.func_info = None
@@ -623,15 +664,29 @@ class utilDwarf:
 		elif form == "DW_FORM_data4":
 			return value
 		elif form == "DW_FORM_block1":
-			val_len = (1 + value[0]) + 1
-			ary_len = len(value)
-			if val_len > ary_len:
-				val_len = ary_len
-			data = bytearray(value[1:val_len])
-			return int.from_bytes(data, "little")
+			result = None
+			length = (1 + value[0]) + 1
+			if len(value) == length:
+				# length byte と valueの要素数が一致するとき、block1として解釈
+				result = int.from_bytes(bytearray(value[1:length]), "little")
+			else:
+				# 上記以外のとき、DWARF expression として解釈
+				result = self.analyze_dwarf_expr(value)
+			return result
 		else:
 			# 未実装多し
 			raise Exception("Unknown DW_FORM detected: " + form)
+
+
+	def analyze_dwarf_expr(self, value):
+		# operation code
+		code = value[0]
+		# expression
+		if code in DW_OP.keys():
+			return DW_OP[code](value[1:])
+		else:
+			raise Exception("unimplemented DWARF expression: code" + f"0x{code:02X}")
+
 
 	def register_address_class(self, t_inf: type_info):
 		"""

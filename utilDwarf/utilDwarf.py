@@ -38,6 +38,20 @@ class ULEB128:
 
 
 class DWARF_expression:
+	# DWARF stack
+	stack = []
+
+	@staticmethod
+	def init():
+		# init DW_OP_lit_n
+		for val, code in enumerate(range(0x30, 0x4F)):
+			DW_OP[code] = DWARF_expression.DW_OP_lit_n(val)
+
+	@staticmethod
+	def DW_OP_lit_n(val:int):
+		def impl():
+			DWARF_expression.stack.append(val)
+		return impl
 
 	@staticmethod
 	def DW_OP_plus_uconst(value):
@@ -45,9 +59,10 @@ class DWARF_expression:
 
 
 DW_OP = {
-	0x23: DWARF_expression.DW_OP_plus_uconst
+	#
+	0x23: DWARF_expression.DW_OP_plus_uconst,
 }
-
+DWARF_expression.init()
 
 
 class utilDwarf:
@@ -1053,6 +1068,9 @@ class utilDwarf:
 			return result
 		elif form == "DW_FORM_block":
 			return ULEB128(value).value
+		elif form == "DW_FORM_indirect":
+			# pyelftoolsがデコードしてる？
+			return value
 		else:
 			# 未実装多し
 			raise Exception("Unknown DW_FORM detected: " + form)

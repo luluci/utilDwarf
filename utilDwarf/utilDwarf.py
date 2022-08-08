@@ -64,6 +64,55 @@ DW_OP = {
 }
 DWARF_expression.init()
 
+"""
+DW_FORM define
+"""
+class DW_FORM(enum.Enum):
+	addr		= 0x01
+	block1		= 0x0A
+	block2		= 0x03
+	block4		= 0x04
+	block		= 0x09
+	data1		= 0x0B
+	data2		= 0x05
+	data4		= 0x06
+	data8		= 0x07
+	sdata		= 0x0D
+	udata		= 0x0F
+	string		= 0x08
+	strp		= 0x0E
+	flag		= 0x0C
+	ref_addr	= 0x10
+	ref1		= 0x11
+	ref2		= 0x12
+	ref4		= 0x13
+	ref8		= 0x14
+	ref_udata	= 0x15
+	indirect	= 0x16
+
+DW_FORM_map = {
+	"DW_FORM_addr"		: DW_FORM.addr,
+	"DW_FORM_block1"	: DW_FORM.block1,
+	"DW_FORM_block2"	: DW_FORM.block2,
+	"DW_FORM_block4"	: DW_FORM.block4,
+	"DW_FORM_block"		: DW_FORM.block,
+	"DW_FORM_data1"		: DW_FORM.data1,
+	"DW_FORM_data2"		: DW_FORM.data2,
+	"DW_FORM_data4"		: DW_FORM.data4,
+	"DW_FORM_data8"		: DW_FORM.data8,
+	"DW_FORM_sdata"		: DW_FORM.sdata,
+	"DW_FORM_udata"		: DW_FORM.udata,
+	"DW_FORM_string"	: DW_FORM.string,
+	"DW_FORM_strp"		: DW_FORM.strp,
+	"DW_FORM_flag"		: DW_FORM.flag,
+	"DW_FORM_ref_addr"	: DW_FORM.ref_addr,
+	"DW_FORM_ref1"		: DW_FORM.ref1,
+	"DW_FORM_ref2"		: DW_FORM.ref2,
+	"DW_FORM_ref4"		: DW_FORM.ref4,
+	"DW_FORM_ref8"		: DW_FORM.ref8,
+	"DW_FORM_ref_udata"	: DW_FORM.ref_udata,
+	"DW_FORM_indirect"	: DW_FORM.indirect,
+}
 
 class utilDwarf:
 
@@ -410,52 +459,52 @@ class utilDwarf:
 		# AT解析
 		match attr.name:
 			case "DW_AT_external":
-				entry.external = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.external = self.analyze_die_AT_FORM(attr)
 			
 			case "DW_AT_name":
-				entry.name = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.name = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_decl_file":
-				entry.decl_file = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.decl_file = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_decl_line":
-				entry.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.decl_line = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_type":
-				entry.type = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.type = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_location":
 				self.analyze_die_AT_location(attr, entry)
 
 			case "DW_AT_declaration":
-				entry.declaration = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.declaration = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_const_value":
 				entry.const_value = attr.value
 
 			case "DW_AT_address_class":
-				entry.address_class = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.address_class = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_prototyped":
 				entry.prototyped = attr.value
 
 			case "DW_AT_encoding":
-				entry.encoding = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.encoding = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_byte_size":
-				entry.byte_size = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.byte_size = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_data_member_location":
-				entry.data_member_location = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.data_member_location = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_bit_offset":
-				entry.bit_offset = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.bit_offset = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_bit_size":
-				entry.bit_size = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.bit_size = self.analyze_die_AT_FORM(attr)
 
 			case "DW_AT_count":
-				entry.count = self.analyze_die_AT_FORM(attr.form, attr.value)
+				entry.count = self.analyze_die_AT_FORM(attr)
 
 			case _:
 				print("unimplemented AT: " + attr.name)
@@ -977,7 +1026,7 @@ class utilDwarf:
 		DW_AT_location
 		"""
 		# 2.6 Location Descriptions
-		value = self.analyze_die_AT_FORM(attr.form, attr.value)
+		value = self.analyze_die_AT_FORM(attr)
 		if attr.form.startswith('DW_FORM_block'):
 			# Simple location descriptions
 			# DW_FORM_block1, DW_FORM_block2, DW_FORM_block4, DW_FORM_block
@@ -1007,14 +1056,14 @@ class utilDwarf:
 			elif at == "DW_AT_name":
 				f_inf.name = die.attributes[at].value.decode(self._encoding)
 			elif at == "DW_AT_type":
-				f_inf.return_type = self.analyze_die_AT_FORM(attr.form, attr.value)
+				f_inf.return_type = self.analyze_die_AT_FORM(attr)
 			elif at == "DW_AT_calling_convention":
 				call_convention = die.attributes[at].value
 			elif at == "DW_AT_decl_file":
-				file_no = self.analyze_die_AT_FORM(attr.form, attr.value)
+				file_no = self.analyze_die_AT_FORM(attr)
 				f_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				f_inf.decl_line = self.analyze_die_AT_FORM(attr.form, attr.value)
+				f_inf.decl_line = self.analyze_die_AT_FORM(attr)
 			elif at == "DW_AT_low_pc":
 				pass
 			elif at == "DW_AT_high_pc":
@@ -1040,40 +1089,63 @@ class utilDwarf:
 					pass
 				
 
-
-	def analyze_die_AT_FORM(self, form: str, value: any):
-		if form == "DW_FORM_ref_addr":
-			return value
-		elif form == "DW_FORM_flag":
-			return value
-		elif form == "DW_FORM_string":
-			return value.decode(self._encoding)
-		elif form == "DW_FORM_udata":
-			return value
-		elif form == "DW_FORM_data1":
-			return value
-		elif form == "DW_FORM_data2":
-			return value
-		elif form == "DW_FORM_data4":
-			return value
-		elif form == "DW_FORM_block1":
-			result = None
-			length = (1 + value[0]) + 1
-			if len(value) == length:
-				# length byte と valueの要素数が一致するとき、block1として解釈
-				result = int.from_bytes(bytearray(value[1:length]), "little")
-			else:
-				# 上記以外のとき、DWARF expression として解釈
-				result = self.analyze_dwarf_expr(value)
-			return result
-		elif form == "DW_FORM_block":
-			return ULEB128(value).value
-		elif form == "DW_FORM_indirect":
-			# pyelftoolsがデコードしてる？
-			return value
+	"""
+	DW_FORM eval
+	"""
+	def analyze_die_AT_FORM(self, attr: AttributeValue):
+		if attr.form == "DW_FORM_indirect":
+			# pyelftoolsでは、DW_FORM_indirectのときには
+			# raw_valueにDW_FORMの値が入っている
+			return self.analyze_die_AT_FORM_impl(attr.raw_value, attr.value)
 		else:
-			# 未実装多し
-			raise Exception("Unknown DW_FORM detected: " + form)
+			return self.analyze_die_AT_FORM_impl(DW_FORM_map[attr.form], attr.value)
+
+	def analyze_die_AT_FORM_impl(self, form: int, value: any):
+		match form:
+			#case DW_FORM.addr:
+			case DW_FORM.block1:
+				result = None
+				length = (1 + value[0]) + 1
+				if len(value) == length:
+					# length byte と valueの要素数が一致するとき、block1として解釈
+					result = int.from_bytes(bytearray(value[1:length]), "little")
+				else:
+					# 上記以外のとき、DWARF expression として解釈
+					result = self.analyze_dwarf_expr(value)
+				return result
+
+			#case DW_FORM.block2:
+			#case DW_FORM.block4:
+
+			case DW_FORM.block:
+				return ULEB128(value).value
+
+			case DW_FORM.data1:
+				return value
+			case DW_FORM.data2:
+				return value
+			case DW_FORM.data4:
+				return value
+			case DW_FORM.data8:
+				return value
+
+			#case DW_FORM.sdata:
+
+			case DW_FORM.udata:
+				return value
+			case DW_FORM.string:
+				return value.decode(self._encoding)
+
+			#case DW_FORM.strp:
+			case DW_FORM.flag:
+				return value
+
+			case DW_FORM.ref_addr:
+				return value
+
+			case _:
+				# 未実装多し
+				raise Exception("Unknown DW_FORM detected: " + form)
 
 
 	def analyze_dwarf_expr(self, value):

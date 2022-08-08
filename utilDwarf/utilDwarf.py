@@ -27,19 +27,26 @@ class ULEB128:
 		"""
 		# 初期化
 		self.value = 0
-		# 解析
-		for n_th, value in enumerate(values):
-			# 7bit目(0開始)をチェック
-			# bit演算より四則演算の方が速いらしい
-			if value / 0x80 >= 1:
-				self.value += (value % 0x80) * (2 ** (7 * (n_th)))
-			else:
-				self.value += value * (2 ** (7 * (n_th)))
+
+		if isinstance(values, int):
+			self.value = values
+		elif isinstance(values, list):
+			# 解析
+			for n_th, value in enumerate(values):
+				# 7bit目(0開始)をチェック
+				# bit演算より四則演算の方が速いらしい
+				if value / 0x80 >= 1:
+					self.value += (value % 0x80) * (2 ** (7 * (n_th)))
+				else:
+					self.value += value * (2 ** (7 * (n_th)))
+		else:
+			raise Exception("invalid ULEB128 input: " + str(values))
 
 
 class DWARF_expression:
 	# DWARF stack
 	stack = []
+	address_size = None
 
 	@staticmethod
 	def init():
@@ -48,10 +55,18 @@ class DWARF_expression:
 			DW_OP[code] = DWARF_expression.DW_OP_lit_n(val)
 
 	@staticmethod
+	def init_address_size(size: int):
+		DWARF_expression.address_size = size
+
+	@staticmethod
 	def DW_OP_lit_n(val:int):
 		def impl():
 			DWARF_expression.stack.append(val)
 		return impl
+
+	@staticmethod
+	def DW_OP_addr(value):
+		return int.from_bytes(bytearray(value[0:DWARF_expression.address_size]), "little")
 
 	@staticmethod
 	def DW_OP_plus_uconst(value):
@@ -59,6 +74,7 @@ class DWARF_expression:
 
 
 DW_OP = {
+	0x03: DWARF_expression.DW_OP_addr,
 	#
 	0x23: DWARF_expression.DW_OP_plus_uconst,
 }
@@ -177,6 +193,7 @@ class utilDwarf:
 			self.debug_abbrev_offset = None
 			self.unit_length = None
 			self.address_size = None
+			self.offset = None
 			# 0 は「ファイル無し」定義なのでNoneを詰めておく
 			self.file_list: List[utilDwarf.cu_info.file_entry] = []
 			self.include_dir_list: List[str] = []
@@ -313,6 +330,8 @@ class utilDwarf:
 		# ファイル情報
 		if self._debug_warning:
 			print("CU file: " + self._cu_info.compile_dir + "\\" + self._cu_info.filename)
+		# CU offset
+		self._cu_info.offset = cu.cu_offset
 
 		# CompileUnitヘッダ解析
 		self._cu_info.address_size = cu.header['address_size']
@@ -322,6 +341,7 @@ class utilDwarf:
 #		print("    address_size       : " + str(self._curr_cu_info.address_size))
 #		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
 #		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
+		DWARF_expression.init_address_size(self._cu_info.address_size)
 
 		# file_entryは 0:存在しない になるので、Noneを入れておく
 		self._cu_info.file_list.append(None)
@@ -1103,9 +1123,11 @@ class utilDwarf:
 	def analyze_die_AT_FORM_impl(self, form: int, value: any):
 		match form:
 			#case DW_FORM.addr:
+
 			case DW_FORM.block1:
+				# [ length data1 data2 ... ] or [ DWARF expr ]
 				result = None
-				length = (1 + value[0]) + 1
+				length = (1 + value[0])
 				if len(value) == length:
 					# length byte と valueの要素数が一致するとき、block1として解釈
 					result = int.from_bytes(bytearray(value[1:length]), "little")
@@ -1114,8 +1136,31 @@ class utilDwarf:
 					result = self.analyze_dwarf_expr(value)
 				return result
 
-			#case DW_FORM.block2:
-			#case DW_FORM.block4:
+			case DW_FORM.block2:
+				# [ length1 length2 data1 data2 ... ] or [ DWARF expr ]
+				result = None
+				len_size = 2
+				length = int.from_bytes(bytearray(value[0:len_size]), "little") + len_size
+				if len(value) == length:
+					# length byte と valueの要素数が一致するとき、block2として解釈
+					result = int.from_bytes(bytearray(value[len_size:length]), "little")
+				else:
+					# 上記以外のとき、DWARF expression として解釈
+					result = self.analyze_dwarf_expr(value)
+				return result
+
+			case DW_FORM.block4:
+				# [ length1 length2 length3 length4 data1 data2 ... ] or [ DWARF expr ]
+				result = None
+				len_size = 4
+				length = int.from_bytes(bytearray(value[0:len_size]), "little") + len_size
+				if len(value) == length:
+					# length byte と valueの要素数が一致するとき、block4として解釈
+					result = int.from_bytes(bytearray(value[len_size:length]), "little")
+				else:
+					# 上記以外のとき、DWARF expression として解釈
+					result = self.analyze_dwarf_expr(value)
+				return result
 
 			case DW_FORM.block:
 				return ULEB128(value).value
@@ -1130,18 +1175,37 @@ class utilDwarf:
 				return value
 
 			#case DW_FORM.sdata:
+			#	return SLEB128(value).value
 
 			case DW_FORM.udata:
-				return value
+				return ULEB128(value).value
 			case DW_FORM.string:
 				return value.decode(self._encoding)
 
 			#case DW_FORM.strp:
+				# value: .debug_str から対象となる文字列までのoffset
+				# 上記が示す位置から\0までの文字列を返す
+
 			case DW_FORM.flag:
 				return value
 
 			case DW_FORM.ref_addr:
+				# .debug_info の先頭からのoffsetを加算する
 				return value
+			case DW_FORM.ref1:
+				return self._cu_info.offset + value
+			case DW_FORM.ref2:
+				return self._cu_info.offset + value
+			case DW_FORM.ref4:
+				return self._cu_info.offset + value
+			case DW_FORM.ref8:
+				return self._cu_info.offset + value
+			case DW_FORM.ref_udata:
+				# ?合ってる?
+				return self._cu_info.offset + ULEB128(value).value
+
+			#case DW_FORM.indirect:
+				# DW_FORM_indirectが再帰することは無い想定
 
 			case _:
 				# 未実装多し
@@ -1179,7 +1243,8 @@ class utilDwarf:
 			'Renesas RL78' : {
 				3: 4,			# 3 -> 4byte
 				4: 2,			# 4 -> 2byte
-			}
+			},
+			'ARM' : {},
 		}
 		# Address Class 決定
 		address_class = address_class_list[self._arch]

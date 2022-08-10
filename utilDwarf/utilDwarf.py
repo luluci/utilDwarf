@@ -1176,13 +1176,13 @@ class utilDwarf:
 			# raw_valueにDW_FORMの値が入っている
 			return self.analyze_die_AT_FORM_impl(attr.raw_value, attr.value)
 		else:
-			return self.analyze_die_AT_FORM_impl(DW_FORM_map[attr.form], attr.value)
+			return self.analyze_die_AT_FORM_impl(DW_FORM_map[attr.form].value, attr.value)
 
 	def analyze_die_AT_FORM_impl(self, form: int, value: any):
 		match form:
-			#case DW_FORM.addr:
+			#case DW_FORM.addr.value:
 
-			case DW_FORM.block1:
+			case DW_FORM.block1.value:
 				# [ length data1 data2 ... ] or [ DWARF expr ]
 				result = None
 				length = (1 + value[0])
@@ -1194,7 +1194,7 @@ class utilDwarf:
 					result = self.analyze_dwarf_expr(value)
 				return result
 
-			case DW_FORM.block2:
+			case DW_FORM.block2.value:
 				# [ length1 length2 data1 data2 ... ] or [ DWARF expr ]
 				result = None
 				len_size = 2
@@ -1207,7 +1207,7 @@ class utilDwarf:
 					result = self.analyze_dwarf_expr(value)
 				return result
 
-			case DW_FORM.block4:
+			case DW_FORM.block4.value:
 				# [ length1 length2 length3 length4 data1 data2 ... ] or [ DWARF expr ]
 				result = None
 				len_size = 4
@@ -1220,49 +1220,49 @@ class utilDwarf:
 					result = self.analyze_dwarf_expr(value)
 				return result
 
-			case DW_FORM.block:
+			case DW_FORM.block.value:
 				return ULEB128(value).value
 
-			case DW_FORM.data1:
+			case DW_FORM.data1.value:
 				return value
-			case DW_FORM.data2:
+			case DW_FORM.data2.value:
 				return value
-			case DW_FORM.data4:
+			case DW_FORM.data4.value:
 				return value
-			case DW_FORM.data8:
+			case DW_FORM.data8.value:
 				return value
 
-			#case DW_FORM.sdata:
+			#case DW_FORM.sdata.value:
 			#	return SLEB128(value).value
 
-			case DW_FORM.udata:
+			case DW_FORM.udata.value:
 				return ULEB128(value).value
-			case DW_FORM.string:
+			case DW_FORM.string.value:
 				return value.decode(self._encoding)
 
-			#case DW_FORM.strp:
+			#case DW_FORM.strp.value:
 				# value: .debug_str から対象となる文字列までのoffset
 				# 上記が示す位置から\0までの文字列を返す
 
-			case DW_FORM.flag:
+			case DW_FORM.flag.value:
 				return value
 
-			case DW_FORM.ref_addr:
+			case DW_FORM.ref_addr.value:
 				# .debug_info の先頭からのoffsetを加算する
 				return value
-			case DW_FORM.ref1:
+			case DW_FORM.ref1.value:
 				return self._cu_info.offset + value
-			case DW_FORM.ref2:
+			case DW_FORM.ref2.value:
 				return self._cu_info.offset + value
-			case DW_FORM.ref4:
+			case DW_FORM.ref4.value:
 				return self._cu_info.offset + value
-			case DW_FORM.ref8:
+			case DW_FORM.ref8.value:
 				return self._cu_info.offset + value
-			case DW_FORM.ref_udata:
+			case DW_FORM.ref_udata.value:
 				# ?合ってる?
 				return self._cu_info.offset + ULEB128(value).value
 
-			#case DW_FORM.indirect:
+			#case DW_FORM.indirect.value:
 				# DW_FORM_indirectが再帰することは無い想定
 
 			case _:

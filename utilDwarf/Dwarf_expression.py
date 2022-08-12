@@ -151,6 +151,7 @@ class Dwarf_expression:
 			DW_OP.const8s				: self.DW_OP_const_n,
 			# 2.5.1.2 Register Based Addressing
 			# レジスタとはどれを指してる？
+			DW_OP.fbreg					: self.DW_OP_fbreg,
 			# 2.5.1.3 Stack Operations
 			DW_OP.dup					: self.DW_OP_dup,
 			DW_OP.drop					: self.DW_OP_drop,
@@ -164,7 +165,7 @@ class Dwarf_expression:
 			DW_OP.xderef_size			: self.DW_OP_unimpl,
 			DW_OP.push_object_address	: self.DW_OP_unimpl,
 			DW_OP.form_tls_address		: self.DW_OP_unimpl,
-			DW_OP.call_frame_cfa		: self.DW_OP_unimpl,
+			DW_OP.call_frame_cfa		: self.DW_OP_call_frame_cfa,
 			# 2.5.1.4 Arithmetic and Logical Operations
 			DW_OP.plus_uconst			: self.DW_OP_plus_uconst,
 		}
@@ -172,6 +173,7 @@ class Dwarf_expression:
 		# DWARF stack
 		self.stack = []
 		self.address_size = None
+		self.frame_base_addr = None
 
 		# init DW_OP_lit_n
 		for val, code in enumerate(range(0x30, 0x4F)):
@@ -179,6 +181,9 @@ class Dwarf_expression:
 
 	def init_address_size(self, size: int):
 		self.address_size = size
+
+	def set_frame_base(self, addr: int):
+		self.frame_base_addr = addr
 
 	def init_stack(self):
 		self.stack.clear()
@@ -189,7 +194,7 @@ class Dwarf_expression:
 	def get(self):
 		return self.stack.pop()
 
-	def DW_OP_unimpl(self):
+	def DW_OP_unimpl(self, value):
 		raise Exception("unimplemented DW_OP!")
 
 	def DW_OP_lit_n(self, val:int):
@@ -212,6 +217,13 @@ class Dwarf_expression:
 		val = SLEB128(value).value
 		self.stack.append(val)
 
+
+	def DW_OP_fbreg(self, value):
+		val = SLEB128(value).value
+		val = self.frame_base_addr + val
+		self.stack.append(val)
+
+
 	def DW_OP_dup(self):
 		val = self.stack[-1]
 		self.stack.append(val)
@@ -226,6 +238,11 @@ class Dwarf_expression:
 
 	def DW_OP_over(self):
 		self.DW_OP_pick(1)
+
+	def DW_OP_call_frame_cfa(self, value):
+		# DW_OP_call_frame_cfa is not meaningful
+		# 読み捨てる
+		self.stack.append(0)
 
 	def DW_OP_plus_uconst(self, value):
 		val = 0

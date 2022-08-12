@@ -90,6 +90,8 @@ class utilDwarf:
 			self.decl_file = None
 			# DW_AT_decl_line
 			self.decl_line = None
+			# DW_AT_decl_column
+			self.decl_column = None
 			# DW_AT_type
 			self.type = None
 			# DW_AT_location
@@ -115,6 +117,12 @@ class utilDwarf:
 			self.bit_size = None
 			# DW_AT_count
 			self.count = None
+			# DW_AT_sibling: 兄弟DIEへの参照(DIE内)アドレス
+			self.sibling_addr = None
+			# DW_AT_declaration: 宣言のみ、不完全型かどうか
+			self.incomplete = None
+			# DW_AT_frame_base
+			self.frame_base_addr = None
 
 	class cu_info:
 
@@ -143,10 +151,12 @@ class utilDwarf:
 			self.loclistptr = None
 			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
+			self.decl_column = None
 			self.not_declaration = None		# declarationなし. 不完全型等
 			self.extern = None				# 外部結合, extern宣言
 			self.external_file = None		# ファイル外定義(cファイル以外、hファイル等で定義)
 			self.const_value = None
+			self.sibling_addr = None
 
 	class func_info:
 		def __init__(self) -> None:
@@ -154,6 +164,12 @@ class utilDwarf:
 			self.return_type = None
 			self.addr = None
 			self.params = []
+			# 関数フレームベースアドレス
+			self.frame_base_addr = None
+			# 
+			self.decl_file = None
+			self.decl_line = None
+			self.decl_column = None
 
 	class type_info:
 		class TAG(enum.Flag):
@@ -191,6 +207,11 @@ class utilDwarf:
 			self.params = []
 			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
+			self.decl_column = None
+			# DW_AT_sibling: 兄弟DIEへの参照(DIE内)アドレス
+			self.sibling_addr = None
+			# DW_AT_declaration: 宣言のみ、不完全型かどうか
+			self.incomplete = None
 			# 型情報統合データ用メンバ
 			self.sub_type = None	# array: 配列の各要素の型情報
 
@@ -432,6 +453,9 @@ class utilDwarf:
 			case "DW_AT_decl_line":
 				entry.decl_line = self.analyze_die_AT_FORM(attr)
 
+			case "DW_AT_decl_column":
+				entry.decl_line = self.analyze_die_AT_FORM(attr)
+
 			case "DW_AT_type":
 				entry.type = self.analyze_die_AT_FORM(attr)
 
@@ -467,6 +491,12 @@ class utilDwarf:
 
 			case "DW_AT_count":
 				entry.count = self.analyze_die_AT_FORM(attr)
+
+			case "DW_AT_frame_base":
+				entry.frame_base_addr = self.analyze_die_AT_FORM(attr)
+
+			case "DW_AT_sibling":
+				entry.sibling_addr = self.analyze_die_AT_FORM(attr)
 
 			case _:
 				print("unimplemented AT: " + attr.name)
@@ -528,6 +558,9 @@ class utilDwarf:
 			elif at == "DW_AT_byte_size":
 				type_inf.byte_size = entry.byte_size
 				parent.byte_size = entry.byte_size
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
 			else:
 				"""
 				DW_AT_allocated
@@ -542,7 +575,6 @@ class utilDwarf:
 				DW_AT_digit_count
 				DW_AT_endianity
 				DW_AT_picture_string
-				DW_AT_sibling
 				DW_AT_small
 				"""
 				if self._debug_warning:
@@ -588,6 +620,15 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = entry.decl_line
 				parent.decl_line = entry.decl_line
+			elif at == "DW_AT_decl_column":
+				type_inf.decl_column = entry.decl_column
+				parent.decl_column = entry.decl_column
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
+			elif at == "DW_AT_declaration":
+				type_inf.incomplete = entry.incomplete
+				parent.incomplete = entry.incomplete
 			else:
 				"""
 				DECL
@@ -598,7 +639,6 @@ class utilDwarf:
 				DW_AT_data_location
 				DW_AT_declaration
 				DW_AT_description
-				DW_AT_sibling
 				DW_AT_specification
 				DW_AT_start_scope
 				DW_AT_visibility
@@ -670,6 +710,12 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = entry.decl_line
 				parent.decl_line = entry.decl_line
+			elif at == "DW_AT_decl_column":
+				type_inf.decl_column = entry.decl_column
+				parent.decl_column = entry.decl_column
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
 			else:
 				"""
 				DECL
@@ -677,7 +723,6 @@ class utilDwarf:
 				DW_AT_declaration
 				DW_AT_description
 				DW_AT_mutable
-				DW_AT_sibling
 				DW_AT_visibility
 				"""
 				if self._debug_warning:
@@ -708,6 +753,9 @@ class utilDwarf:
 			if at == "DW_AT_type":
 				type_inf.child_type = entry.type
 				parent.type = entry.type
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
 			elif at == "DW_AT_allocated":
 				pass
 			elif at == "DW_AT_associated":
@@ -728,7 +776,6 @@ class utilDwarf:
 				DW_AT_description
 				DW_AT_name
 				DW_AT_ordering
-				DW_AT_sibling
 				DW_AT_specification 
 				DW_AT_start_scope
 				DW_AT_visibility
@@ -826,14 +873,19 @@ class utilDwarf:
 				type_inf.address_class = entry.address_class
 				self.register_address_class(type_inf)
 				parent.address_class = entry.address_class
-			elif at == "DW_AT_count":
-				pass
+			elif at == "DW_AT_byte_size":
+				type_inf.byte_size = entry.byte_size
+				parent.byte_size = entry.byte_size
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
+#			elif at == "DW_AT_count":
+#				pass
 			else:
 				"""
 				DW_AT_allocated
 				DW_AT_associated
 				DW_AT_data_location
-				DW_AT_sibling
 				"""
 				if self._debug_warning:
 					print("unknown attr: " + at)
@@ -871,6 +923,12 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				type_inf.decl_line = entry.decl_line
 				parent.decl_line = entry.decl_line
+			elif at == "DW_AT_decl_column":
+				type_inf.decl_column = entry.decl_column
+				parent.decl_column = entry.decl_column
+			elif at == "DW_AT_sibling":
+				type_inf.sibling_addr = entry.sibling_addr
+				parent.sibling_addr = entry.sibling_addr
 			else:
 				"""
 				DECL
@@ -881,7 +939,6 @@ class utilDwarf:
 				DW_AT_data_location
 				DW_AT_declaration
 				DW_AT_description
-				DW_AT_sibling
 				DW_AT_start_scope
 				DW_AT_visibility
 				"""
@@ -938,6 +995,9 @@ class utilDwarf:
 			elif at == "DW_AT_decl_line":
 				parent.decl_line = entry.decl_line
 				var.decl_line = entry.decl_line
+			elif at == "DW_AT_decl_column":
+				var.decl_column = entry.decl_column
+				parent.decl_column = entry.decl_column
 			elif at == "DW_AT_type":
 				parent.type = entry.type
 				var.type = entry.type
@@ -952,6 +1012,9 @@ class utilDwarf:
 			elif at == "DW_AT_const_value":
 				parent.const_value = entry.const_value
 				var.const_value = entry.const_value
+			elif at == "DW_AT_sibling":
+				parent.sibling_addr = entry.sibling_addr
+				var.sibling_addr = entry.sibling_addr
 			else:
 				"""
 				DECL
@@ -960,7 +1023,6 @@ class utilDwarf:
 				DW_AT_description
 				DW_AT_endianity
 				DW_AT_segment
-				DW_AT_sibling
 				DW_AT_specification
 				DW_AT_start_scope
 				DW_AT_visibility
@@ -1017,25 +1079,31 @@ class utilDwarf:
 		call_convention = 1		# デフォルトがDW_CC_normal
 		for at in die.attributes.keys():
 			attr: AttributeValue = die.attributes[at]
+			# Attribute Entry生成
+			entry = self.analyze_die_AT(die.attributes[at])
+
 			if at == "DW_AT_external":
 				pass
 			elif at == "DW_AT_name":
-				f_inf.name = die.attributes[at].value.decode(self._encoding)
+				f_inf.name = entry.name
 			elif at == "DW_AT_type":
-				f_inf.return_type = self.analyze_die_AT_FORM(attr)
+				f_inf.return_type = entry.type
 			elif at == "DW_AT_calling_convention":
 				call_convention = die.attributes[at].value
 			elif at == "DW_AT_decl_file":
-				file_no = self.analyze_die_AT_FORM(attr)
+				file_no = entry.decl_file
 				f_inf.decl_file = self._cu_info.file_list[file_no]
 			elif at == "DW_AT_decl_line":
-				f_inf.decl_line = self.analyze_die_AT_FORM(attr)
+				f_inf.decl_line = entry.decl_line
+			elif at == "DW_AT_decl_column":
+				f_inf.decl_column = entry.decl_column
 			elif at == "DW_AT_low_pc":
 				pass
 			elif at == "DW_AT_high_pc":
 				pass
 			elif at == "DW_AT_frame_base":
-				pass
+				f_inf.frame_base_addr = entry.frame_base_addr
+				self.dwarf_expr.set_frame_base(entry.frame_base_addr)
 			elif at == "DW_AT_return_addr":
 				pass
 			else:
@@ -1131,9 +1199,11 @@ class utilDwarf:
 			case DW_FORM.string.value:
 				return value.decode(self._encoding)
 
-			#case DW_FORM.strp.value:
+			case DW_FORM.strp.value:
 				# value: .debug_str から対象となる文字列までのoffset
 				# 上記が示す位置から\0までの文字列を返す
+				# elftoolsでは文字列をvalueで渡してくれる
+				return value.decode(self._encoding)
 
 			case DW_FORM.flag.value:
 				return value
@@ -1158,7 +1228,7 @@ class utilDwarf:
 
 			case _:
 				# 未実装多し
-				raise Exception("Unknown DW_FORM detected: " + form)
+				raise Exception(f"Unknown DW_FORM detected: {DW_FORM(form)}")
 
 
 	def analyze_dwarf_expr(self, value):
@@ -1198,6 +1268,7 @@ class utilDwarf:
 				4: 2,			# 4 -> 2byte
 			},
 			'ARM' : {},
+			'AArch64' : {},
 		}
 		# Address Class 決定
 		address_class = address_class_list[self._arch]
@@ -1601,7 +1672,7 @@ class utilDwarf:
 			# child要素チェック
 			next_type_id = child_type.child_type
 		# tagがNoneのとき、void型と推測
-		if type_inf.tag is 0:
+		if type_inf.tag == 0:
 			type_inf.tag = utilDwarf.type_info.TAG.base
 		if type_inf.name is None:
 			type_inf.name = "void"

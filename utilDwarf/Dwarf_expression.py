@@ -130,7 +130,39 @@ class DW_OP(enum.Enum):
 	call4					= 0x99
 	call_ref				= 0x9A
 	nop						= 0x96
-
+	#
+	reg0					= 0x50
+	reg1					= 0x51
+	reg2					= 0x52
+	reg3					= 0x53
+	reg4					= 0x54
+	reg5					= 0x55
+	reg6					= 0x56
+	reg7					= 0x57
+	reg8					= 0x58
+	reg9					= 0x59
+	reg10					= 0x5A
+	reg11					= 0x5B
+	reg12					= 0x5C
+	reg13					= 0x5D
+	reg14					= 0x5E
+	reg15					= 0x5F
+	reg16					= 0x60
+	reg17					= 0x61
+	reg18					= 0x62
+	reg19					= 0x63
+	reg20					= 0x64
+	reg21					= 0x65
+	reg22					= 0x66
+	reg23					= 0x67
+	reg24					= 0x68
+	reg25					= 0x69
+	reg26					= 0x6A
+	reg27					= 0x6B
+	reg28					= 0x6C
+	reg29					= 0x6D
+	reg30					= 0x6E
+	reg31					= 0x6F
 
 
 
@@ -176,8 +208,16 @@ class Dwarf_expression:
 		self.frame_base_addr = None
 
 		# init DW_OP_lit_n
-		for val, code in enumerate(range(0x30, 0x4F)):
+		for val, code in enumerate(range(DW_OP.lit0.value, DW_OP.lit31.value+1)):
 			self.DW_OP_map[DW_OP(code)] = self.DW_OP_lit_n(val)
+
+		# init DW_OP_breg_n
+		for val, code in enumerate(range(DW_OP.breg0.value, DW_OP.breg31.value+1)):
+			self.DW_OP_map[DW_OP(code)] = self.DW_OP_breg_n(val)
+
+		# init DW_OP_reg_n
+		for val, code in enumerate(range(DW_OP.reg0.value, DW_OP.reg31.value+1)):
+			self.DW_OP_map[DW_OP(code)] = self.DW_OP_reg_n(val)
 
 	def init_address_size(self, size: int):
 		self.address_size = size
@@ -198,8 +238,19 @@ class Dwarf_expression:
 		raise Exception("unimplemented DW_OP!")
 
 	def DW_OP_lit_n(self, val:int):
-		def impl():
+		def impl(value):
 			self.stack.append(val)
+		return impl
+
+	def DW_OP_breg_n(self, val:int):
+		def impl(value):
+			sleb128 = SLEB128(value)
+			self.stack.append(0 + sleb128.value)
+		return impl
+
+	def DW_OP_reg_n(self, val:int):
+		def impl(value):
+			self.stack.append(0)
 		return impl
 
 	def DW_OP_addr(self, value):

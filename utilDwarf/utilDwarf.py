@@ -21,50 +21,56 @@ from .Dwarf_expression import (Dwarf_expression, DW_OP)
 DW_FORM define
 """
 class DW_FORM(enum.Enum):
-	addr		= 0x01
-	block1		= 0x0A
-	block2		= 0x03
-	block4		= 0x04
-	block		= 0x09
-	data1		= 0x0B
-	data2		= 0x05
-	data4		= 0x06
-	data8		= 0x07
-	sdata		= 0x0D
-	udata		= 0x0F
-	string		= 0x08
-	strp		= 0x0E
-	flag		= 0x0C
-	ref_addr	= 0x10
-	ref1		= 0x11
-	ref2		= 0x12
-	ref4		= 0x13
-	ref8		= 0x14
-	ref_udata	= 0x15
-	indirect	= 0x16
+	addr			= 0x01
+	block1			= 0x0A
+	block2			= 0x03
+	block4			= 0x04
+	block			= 0x09
+	data1			= 0x0B
+	data2			= 0x05
+	data4			= 0x06
+	data8			= 0x07
+	sdata			= 0x0D
+	udata			= 0x0F
+	string			= 0x08
+	strp			= 0x0E
+	flag			= 0x0C
+	ref_addr		= 0x10
+	ref1			= 0x11
+	ref2			= 0x12
+	ref4			= 0x13
+	ref8			= 0x14
+	ref_udata		= 0x15
+	indirect		= 0x16
+	sec_offset		= 0x17
+	exprloc			= 0x18
+	flag_present	= 0x19
+	ref_sig8		= 0x20
 
 DW_FORM_map = {
-	"DW_FORM_addr"		: DW_FORM.addr,
-	"DW_FORM_block1"	: DW_FORM.block1,
-	"DW_FORM_block2"	: DW_FORM.block2,
-	"DW_FORM_block4"	: DW_FORM.block4,
-	"DW_FORM_block"		: DW_FORM.block,
-	"DW_FORM_data1"		: DW_FORM.data1,
-	"DW_FORM_data2"		: DW_FORM.data2,
-	"DW_FORM_data4"		: DW_FORM.data4,
-	"DW_FORM_data8"		: DW_FORM.data8,
-	"DW_FORM_sdata"		: DW_FORM.sdata,
-	"DW_FORM_udata"		: DW_FORM.udata,
-	"DW_FORM_string"	: DW_FORM.string,
-	"DW_FORM_strp"		: DW_FORM.strp,
-	"DW_FORM_flag"		: DW_FORM.flag,
-	"DW_FORM_ref_addr"	: DW_FORM.ref_addr,
-	"DW_FORM_ref1"		: DW_FORM.ref1,
-	"DW_FORM_ref2"		: DW_FORM.ref2,
-	"DW_FORM_ref4"		: DW_FORM.ref4,
-	"DW_FORM_ref8"		: DW_FORM.ref8,
-	"DW_FORM_ref_udata"	: DW_FORM.ref_udata,
-	"DW_FORM_indirect"	: DW_FORM.indirect,
+	"DW_FORM_addr"			: DW_FORM.addr,
+	"DW_FORM_block1"		: DW_FORM.block1,
+	"DW_FORM_block2"		: DW_FORM.block2,
+	"DW_FORM_block4"		: DW_FORM.block4,
+	"DW_FORM_block"			: DW_FORM.block,
+	"DW_FORM_data1"			: DW_FORM.data1,
+	"DW_FORM_data2"			: DW_FORM.data2,
+	"DW_FORM_data4"			: DW_FORM.data4,
+	"DW_FORM_data8"			: DW_FORM.data8,
+	"DW_FORM_sdata"			: DW_FORM.sdata,
+	"DW_FORM_udata"			: DW_FORM.udata,
+	"DW_FORM_string"		: DW_FORM.string,
+	"DW_FORM_strp"			: DW_FORM.strp,
+	"DW_FORM_flag"			: DW_FORM.flag,
+	"DW_FORM_ref_addr"		: DW_FORM.ref_addr,
+	"DW_FORM_ref1"			: DW_FORM.ref1,
+	"DW_FORM_ref2"			: DW_FORM.ref2,
+	"DW_FORM_ref4"			: DW_FORM.ref4,
+	"DW_FORM_ref8"			: DW_FORM.ref8,
+	"DW_FORM_ref_udata"		: DW_FORM.ref_udata,
+	"DW_FORM_indirect"		: DW_FORM.indirect,
+	"DW_FORM_exprloc"		: DW_FORM.exprloc,
+	"DW_FORM_flag_present"	: DW_FORM.flag_present,
 }
 
 class utilDwarf:
@@ -1059,7 +1065,7 @@ class utilDwarf:
 			# Simple location descriptions
 			# DW_FORM_block1, DW_FORM_block2, DW_FORM_block4, DW_FORM_block
 			entry.location = value
-		elif attr.form in ('DW_FORM_data4', 'DW_FORM_data8'):
+		elif attr.form in ('DW_FORM_data4', 'DW_FORM_data8', 'DW_FORM_exprloc'):
 			# Location lists
 			entry.loclistptr = value
 		else:
@@ -1180,7 +1186,19 @@ class utilDwarf:
 				return result
 
 			case DW_FORM.block.value:
-				return ULEB128(value).value
+				result = None
+				# [ ULEB128を表すバイト列 ] + [ ULEB128で示されたデータ長 ]
+				uleb128 = ULEB128(value)
+				len_size = uleb128.len_byte
+				length = len_size + uleb128.value
+				if len(value) == length:
+					# length byte と valueの要素数が一致するとき、block4として解釈
+					result = int.from_bytes(bytearray(value[len_size:length]), "little")
+				else:
+					# 上記以外のとき、DWARF expression として解釈
+					self.analyze_dwarf_expr(value)
+					result = self.get_dwarf_expr()
+				return result
 
 			case DW_FORM.data1.value:
 				return value
@@ -1226,6 +1244,14 @@ class utilDwarf:
 			#case DW_FORM.indirect.value:
 				# DW_FORM_indirectが再帰することは無い想定
 
+			case DW_FORM.exprloc.value:
+				# value に Dwarf expression が格納されているとみなす
+				self.analyze_dwarf_expr(value)
+				return self.get_dwarf_expr()
+
+			case DW_FORM.flag_present.value:
+				return value
+
 			case _:
 				# 未実装多し
 				raise Exception(f"Unknown DW_FORM detected: {DW_FORM(form)}")
@@ -1236,10 +1262,6 @@ class utilDwarf:
 		code = value[0]
 		# expression
 		self.dwarf_expr.exec(DW_OP(code))(value[1:])
-		#if code in DW_OP.keys():
-		#	return DW_OP[code](value[1:])
-		#else:
-		#	raise Exception("unimplemented DWARF expression: code" + f"0x{code:02X}")
 
 	def get_dwarf_expr(self):
 		return self.dwarf_expr.get()

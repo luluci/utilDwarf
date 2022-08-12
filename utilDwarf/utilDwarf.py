@@ -1,4 +1,3 @@
-from os import O_NOINHERIT
 import pathlib
 import enum
 import copy
@@ -14,129 +13,9 @@ from elftools.dwarf.callframe import (RegisterRule, CFARule)
 from elftools.construct.lib.container import Container as elftools_container
 
 from .memmap import memmap
+from .LEB128 import (ULEB128, SLEB128)
+from .Dwarf_expression import (Dwarf_expression, DW_OP)
 
-
-class ULEB128:
-	"""
-	unsigned LEB128
-	"""
-
-	def __init__(self, values: List[int]) -> None:
-		"""
-		@value 1バイトデータ列
-		"""
-		# 初期化
-		# ULEB128値
-		self.value = 0
-		# ULEB128構成bit長
-		self.len_bit = 0
-		self.len_byte = 0
-
-		if isinstance(values, int):
-			self.value = values
-			self.len_bit = 8
-			self.len_byte = 1
-		elif isinstance(values, list):
-			# 解析
-			for n_th, value in enumerate(values):
-				self.len_bit += 7
-				# 7bit目(0開始)をチェック
-				# bit演算より四則演算の方が速いらしい
-				if value / 0x80 >= 1:
-					self.value += (value % 0x80) * (2 ** (7 * (n_th)))
-				else:
-					self.value += value * (2 ** (7 * (n_th)))
-			# バイト長計算
-			self.len_byte = int((self.len_bit + 7) / 8)
-		else:
-			raise Exception("invalid ULEB128 input: " + str(values))
-
-class SLEB128:
-	"""
-	signed LEB128
-	"""
-	def __init__(self, values: List[int]) -> None:
-		# 初期化
-		self.value = 0
-
-		# ULEB128でデータ解析
-		uleb128 = ULEB128(values)
-		self.len_byte = uleb128.len_byte
-		# ULEB128の値の符号の位置を算出
-		sign_bit = 2 ** (7 * uleb128.len_byte - 1)
-		# ULEB128値の符号位置をチェック
-		if uleb128.value & sign_bit != 0:
-			# 符号付きデータ
-			# 符号ビットより上位bitをマスクするデータを作成
-			mask_bit = (2 ** (8 * uleb128.len_byte)) - ((2 ** (7 * uleb128.len_byte)) - 1) - 1
-			# マスクをかける
-			value = uleb128.value + mask_bit
-			# LEB128で表現されているバイト数分だけをバイトシーケンスとして抽出
-			# 抽出したバイトシーケンスをsigned整数として解析して値に変換
-			buff = []
-			for i in range(0, self.len_byte):
-				buff.append(int(value % 256))
-				value = int(value / 256)
-			self.value = int.from_bytes(bytearray(buff), "little", signed=True)
-		else:
-			# 符号なしデータ
-			self.value = uleb128.value
-
-"""
-# -129
-sleb = SLEB128([255, 126])
-pass
-# 129
-sleb = SLEB128([129, 1])
-pass
-# -2
-sleb = SLEB128([126])
-pass
-# 2
-sleb = SLEB128([2])
-pass
-# -344865
-sleb = SLEB128([0xDF, 0xF9, 0x6A])
-pass
-"""
-
-
-class DWARF_expression:
-	# DWARF stack
-	stack = []
-	address_size = None
-
-	@staticmethod
-	def init():
-		# init DW_OP_lit_n
-		for val, code in enumerate(range(0x30, 0x4F)):
-			DW_OP[code] = DWARF_expression.DW_OP_lit_n(val)
-
-	@staticmethod
-	def init_address_size(size: int):
-		DWARF_expression.address_size = size
-
-	@staticmethod
-	def DW_OP_lit_n(val:int):
-		def impl():
-			DWARF_expression.stack.append(val)
-		return impl
-
-	@staticmethod
-	def DW_OP_addr(value):
-		return int.from_bytes(bytearray(value[0:DWARF_expression.address_size]), "little")
-
-	@staticmethod
-	def DW_OP_plus_uconst(value):
-		return ULEB128(value).value
-
-
-DW_OP = {
-	0x03: DWARF_expression.DW_OP_addr,
-	#
-	0x23: DWARF_expression.DW_OP_plus_uconst,
-}
-DWARF_expression.init()
 
 """
 DW_FORM define
@@ -334,6 +213,8 @@ class utilDwarf:
 		self._open()
 		# debug情報
 		self._debug_warning = False
+		# Dwarf expression
+		self.dwarf_expr = Dwarf_expression()
 
 	def _open(self) -> None:
 		# pathチェック
@@ -402,7 +283,7 @@ class utilDwarf:
 #		print("    address_size       : " + str(self._curr_cu_info.address_size))
 #		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
 #		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
-		DWARF_expression.init_address_size(self._cu_info.address_size)
+		self.dwarf_expr.init_address_size(self._cu_info.address_size)
 
 		# file_entryは 0:存在しない になるので、Noneを入れておく
 		self._cu_info.file_list.append(None)
@@ -1198,7 +1079,8 @@ class utilDwarf:
 					result = int.from_bytes(bytearray(value[1:length]), "little")
 				else:
 					# 上記以外のとき、DWARF expression として解釈
-					result = self.analyze_dwarf_expr(value)
+					self.analyze_dwarf_expr(value)
+					result = self.get_dwarf_expr()
 				return result
 
 			case DW_FORM.block2.value:
@@ -1211,7 +1093,8 @@ class utilDwarf:
 					result = int.from_bytes(bytearray(value[len_size:length]), "little")
 				else:
 					# 上記以外のとき、DWARF expression として解釈
-					result = self.analyze_dwarf_expr(value)
+					self.analyze_dwarf_expr(value)
+					result = self.get_dwarf_expr()
 				return result
 
 			case DW_FORM.block4.value:
@@ -1224,7 +1107,8 @@ class utilDwarf:
 					result = int.from_bytes(bytearray(value[len_size:length]), "little")
 				else:
 					# 上記以外のとき、DWARF expression として解釈
-					result = self.analyze_dwarf_expr(value)
+					self.analyze_dwarf_expr(value)
+					result = self.get_dwarf_expr()
 				return result
 
 			case DW_FORM.block.value:
@@ -1281,10 +1165,14 @@ class utilDwarf:
 		# operation code
 		code = value[0]
 		# expression
-		if code in DW_OP.keys():
-			return DW_OP[code](value[1:])
-		else:
-			raise Exception("unimplemented DWARF expression: code" + f"0x{code:02X}")
+		self.dwarf_expr.exec(DW_OP(code))(value[1:])
+		#if code in DW_OP.keys():
+		#	return DW_OP[code](value[1:])
+		#else:
+		#	raise Exception("unimplemented DWARF expression: code" + f"0x{code:02X}")
+
+	def get_dwarf_expr(self):
+		return self.dwarf_expr.get()
 
 
 	def register_address_class(self, t_inf: type_info):

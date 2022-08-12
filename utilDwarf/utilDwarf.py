@@ -277,21 +277,22 @@ class utilDwarf:
 			self.params = []
 
 	class type_info:
-		class TAG(enum.Enum):
-			base = enum.auto()			# primitive type
-			array = enum.auto()			# array
-			struct = enum.auto()		# struct
-			union = enum.auto()			# union
-			func = enum.auto()			# function type
-			parameter = enum.auto()		# parameter
-			typedef = enum.auto()		# typedef
-			const = enum.auto()			# const
-			volatile = enum.auto()		# volatile
-			pointer = enum.auto()		# pointer
-			restrict = enum.auto()		# restrict
+		class TAG(enum.Flag):
+			none		= enum.auto()
+			base		= enum.auto()	# primitive type
+			array		= enum.auto()	# array
+			struct		= enum.auto()	# struct
+			union		= enum.auto()	# union
+			func		= enum.auto()	# function type
+			parameter	= enum.auto()	# parameter
+			typedef		= enum.auto()	# typedef
+			const		= enum.auto()	# const
+			volatile	= enum.auto()	# volatile
+			pointer		= enum.auto()	# pointer
+			restrict	= enum.auto()	# restrict
 
 		def __init__(self) -> None:
-			self.tag = None
+			self.tag = utilDwarf.type_info.TAG.none
 			self.name = None
 			self.byte_size = None
 			self.bit_size = None
@@ -305,12 +306,14 @@ class utilDwarf:
 			self.range = None
 			self.prototyped = None
 			self.const = None
-			self.pointer = None
+			self.pointer = 0		# double pointerで2になる
 			self.restrict = None
 			self.volatile = None
 			self.params = []
 			self.decl_file = utilDwarf.cu_info.file_entry()
 			self.decl_line = None
+			# 型情報統合データ用メンバ
+			self.sub_type = None	# array: 配列の各要素の型情報
 
 	def __init__(self, path: pathlib.Path, encoding:str = 'utf-8'):
 		# 文字コード
@@ -731,27 +734,31 @@ class utilDwarf:
 			# entry生成
 			entry = self.add_entry(child.offset, child.tag, child.size)
 
-			if child.tag == "DW_TAG_member":
-				#type_inf.member.append(utilDwarf.type_info())
-				#mem_inf = type_inf.member[len(type_inf.member)-1]
-				#self.analyze_die_TAG_member(child, mem_inf)
-				mem_inf = self.analyze_die_TAG_member(child, entry)
-				type_inf.member.append(mem_inf)
-			elif child.tag == "DW_TAG_array_type":
-				# struct/union/class内で使う型の定義
-				# よって, member要素ではない
-				self.analyze_die_TAG_array_type(child, entry)
-			else:
-				# ありえないパス
-				if self._debug_warning:
-					print("?: " + child.tag)
+			match child.tag:
+				case "DW_TAG_member":
+					#type_inf.member.append(utilDwarf.type_info())
+					#mem_inf = type_inf.member[len(type_inf.member)-1]
+					#self.analyze_die_TAG_member(child, mem_inf)
+					mem_inf = self.analyze_die_TAG_member(child, entry)
+					type_inf.member.append(mem_inf)
+				case "DW_TAG_array_type":
+					# struct/union/class内で使う型の定義
+					# よって, member要素ではない
+					self.analyze_die_TAG_array_type(child, entry)
+				case "DW_TAG_const_type" | "DW_TAG_pointer_type" | "DW_TAG_restrict_type" | "DW_TAG_volatile_type":
+					# struct/union/class内で使う型の定義
+					self.analyze_die_TAG_type_qualifier(child, entry, utilDwarf.type_info.TAG.pointer)
+				case _:
+					# ありえないパス
+					if self._debug_warning:
+						print("?: " + child.tag)
 
 	def analyze_die_TAG_member(self, die: DIE, parent: entry) -> type_info:
 		"""
 		DW_TAG_member
 		"""
 		# type_info取得
-		type_inf = self.new_type_info(die.offset, None)
+		type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.none)
 
 		for at in die.attributes.keys():
 			# Attribute Entry生成
@@ -1330,18 +1337,22 @@ class utilDwarf:
 
 	def make_memmap_impl(self, var: var_info, t_inf: type_info) -> None:
 		# typeチェック
-		if t_inf.tag == utilDwarf.type_info.TAG.base:
-			self.make_memmap_var_base(var, t_inf)
-		elif t_inf.tag == utilDwarf.type_info.TAG.array:
-			self.make_memmap_var_array(var, t_inf)
-		elif t_inf.tag == utilDwarf.type_info.TAG.struct:
-			self.make_memmap_var_struct(var, t_inf)
-		elif t_inf.tag == utilDwarf.type_info.TAG.union:
-			self.make_memmap_var_struct(var, t_inf)
-		elif t_inf.tag == utilDwarf.type_info.TAG.func:
-			self.make_memmap_var_func(var, t_inf)
-		else:
-			raise Exception("unknown variable type detected.")
+		match t_inf.tag:
+			case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+				self.make_memmap_var_array(var, t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+				self.make_memmap_var_base(var, t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+				self.make_memmap_var_func(var, t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+				self.make_memmap_var_struct(var, t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+				self.make_memmap_var_struct(var, t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+				self.make_memmap_var_base(var, t_inf)
+			case _:
+				raise Exception("unknown variable type detected.")
+
 
 	def make_memmap_var(self, var: var_info, t_inf: type_info) -> memmap.var_type:
 		"""
@@ -1394,25 +1405,28 @@ class utilDwarf:
 		memmap_var.tag = memmap.var_type.TAG.array		# 変数タイプタグ
 
 		# 配列の各idxを個別にmemberとして登録
-		member_t_inf = self.get_type_info(t_inf.child_type)
+		member_t_inf = t_inf.sub_type
 		for idx in range(0, memmap_var.array_size):
 			# 再帰処理開始
 			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
 
 	def make_memmap_var_array_each(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
 		# typeチェック
-		if mem_inf.tag == utilDwarf.type_info.TAG.base:
-			self.make_memmap_var_array_each_base(parent, mem_inf, idx)
-		elif mem_inf.tag == utilDwarf.type_info.TAG.array:
-			self.make_memmap_var_array_each_array(parent, mem_inf, idx)
-		elif mem_inf.tag == utilDwarf.type_info.TAG.struct:
-			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
-		elif mem_inf.tag == utilDwarf.type_info.TAG.union:
-			self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
-		elif mem_inf.tag == utilDwarf.type_info.TAG.func:
-			self.make_memmap_var_array_each_func(parent, mem_inf, idx)
-		else:
-			raise Exception("unknown variable type detected.")
+		match mem_inf.tag:
+			case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+				self.make_memmap_var_array_each_array(parent, mem_inf, idx)
+			case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+				self.make_memmap_var_array_each_base(parent, mem_inf, idx)
+			case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+				self.make_memmap_var_array_each_func(parent, mem_inf, idx)
+			case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+				self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+			case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+				self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+			case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+				self.make_memmap_var_array_each_base(parent, mem_inf, idx)
+			case _:
+				raise Exception("unknown variable type detected.")
 
 	def make_memmap_var_array_each_base(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
 		# 配列要素[idx]を登録
@@ -1511,18 +1525,21 @@ class utilDwarf:
 		# member型情報を取得
 		mem_t_inf = self.get_type_info(mem_inf.child_type)
 		# typeチェック
-		if mem_t_inf.tag == utilDwarf.type_info.TAG.base:
-			self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
-		elif mem_t_inf.tag == utilDwarf.type_info.TAG.array:
-			self.make_memmap_var_member_array(parent, mem_inf, mem_t_inf)
-		elif mem_t_inf.tag == utilDwarf.type_info.TAG.struct:
-			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
-		elif mem_t_inf.tag == utilDwarf.type_info.TAG.union:
-			self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
-		elif mem_t_inf.tag == utilDwarf.type_info.TAG.func:
-			self.make_memmap_var_member_func(parent, mem_inf, mem_t_inf)
-		else:
-			raise Exception("unknown variable type detected.")
+		match mem_t_inf.tag:
+			case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+				self.make_memmap_var_member_array(parent, mem_inf, mem_t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+				self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+				self.make_memmap_var_member_func(parent, mem_inf, mem_t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+				self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+				self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+			case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+				self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
+			case _:
+				raise Exception("unknown variable type detected.")
 
 	def make_memmap_var_member_base(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
 		# 変数情報作成
@@ -1578,7 +1595,7 @@ class utilDwarf:
 		parent.member.append(memmap_var)
 
 		# 配列の各idxを個別にmemberとして登録
-		member_t_inf = self.get_type_info(t_inf.child_type)
+		member_t_inf = t_inf.sub_type
 		for idx in range(0, memmap_var.array_size):
 			# 再帰処理開始
 			self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
@@ -1587,13 +1604,13 @@ class utilDwarf:
 		# 構造体変数を登録
 		# 変数情報作成
 		memmap_var = memmap.var_type()
-		memmap_var.tag = memmap.var_type.TAG.struct								# 変数タイプタグ
 		memmap_var.address = parent.address + member_inf.member_location		# アドレス
 		memmap_var.address_offset = member_inf.member_location					# アドレスオフセット
 		memmap_var.name = member_inf.name										# メンバ名
 		memmap_var.decl_file = member_inf.decl_file.filename
 		memmap_var.decl_line = member_inf.decl_line
 		# 型情報作成
+		memmap_var.tag = t_inf.tag
 		memmap_var.byte_size = t_inf.byte_size									# 宣言型サイズ
 		memmap_var.typename = t_inf.name
 		memmap_var.pointer = t_inf.pointer				# pointer
@@ -1614,17 +1631,10 @@ class utilDwarf:
 		if type_id not in self._type_tbl.keys():
 			# ありえないはず
 			raise Exception("undetected type appeared.")
-		# 結果の型情報を作成
-		# 修飾子等はツリーになっているので、コピーを作って反映させる
-		type_inf = copy.copy(self._type_tbl[type_id])
-		if type_inf.tag in {TAG.typedef, TAG.const, TAG.pointer, TAG.restrict, TAG.volatile}:
-			type_inf.tag = None
-		# typedef チェック
-		next_type_id = type_inf.child_type
+		# 型情報がツリーになっているので順に辿って結合していくことで1つの型情報とする
+		type_inf = utilDwarf.type_info()
+		next_type_id = type_id
 		while next_type_id is not None:
-			# type-qualifierチェック
-			if type_inf.const is not None:
-				is_const = True
 			# child情報を結合していく
 			child_type = self._type_tbl[next_type_id]
 			if child_type.tag == utilDwarf.type_info.TAG.base:
@@ -1634,8 +1644,9 @@ class utilDwarf:
 				type_inf.encoding = self.get_type_info_select_overwrite(type_inf.encoding, child_type.encoding)
 				# byte_size 選択
 				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
-				# tag 上書き
-				type_inf.tag = self.get_type_info_select(type_inf.tag, child_type.tag)
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.func:
 				# name 選択
 				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
@@ -1644,11 +1655,15 @@ class utilDwarf:
 				# params 選択
 				if not type_inf.params and child_type.params:
 					type_inf.params = child_type.params
-				# tag 上書き
-				type_inf.tag = child_type.tag
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.typedef:
 				# name 選択
 				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag in {TAG.struct, TAG.union}:
 				# name 上書き
 				type_inf.name = self.get_type_info_select_overwrite(type_inf.name, child_type.name)
@@ -1657,37 +1672,59 @@ class utilDwarf:
 				# member 選択
 				if not type_inf.member and child_type.member:
 					type_inf.member = child_type.member
-				# tag 上書き
-				type_inf.tag = child_type.tag
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.array:
 				# name 選択
 				type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
 				# range 上書き
 				type_inf.range = self.get_type_info_select(type_inf.range, child_type.range)
-				# tag 上書き
-				type_inf.tag = child_type.tag
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.const:
 				type_inf.const = True
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.pointer:
 				# address_class 上書き
 				type_inf.address_class = self.get_type_info_select(type_inf.address_class, child_type.address_class)
 				# byte_size 上書き
 				type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
-				type_inf.pointer = True
+				type_inf.pointer += 1
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.restrict:
 				type_inf.restrict = True
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			elif child_type.tag == utilDwarf.type_info.TAG.volatile:
 				type_inf.volatile = True
+
+				# tagマージ
+				type_inf.tag |= child_type.tag
 			else:
 				# 実装忘れ以外ありえない
 				raise Exception("undetected type appeared.")
 			# child要素チェック
 			next_type_id = child_type.child_type
 		# tagがNoneのとき、void型と推測
-		if type_inf.tag is None:
+		if type_inf.tag is 0:
 			type_inf.tag = utilDwarf.type_info.TAG.base
 		if type_inf.name is None:
 			type_inf.name = "void"
+		# array後処理
+		if (type_inf.tag & utilDwarf.type_info.TAG.array).value != 0:
+			# array要素の型情報を作成
+			# array周りの情報を除去する
+			sub_type = copy.copy(type_inf)
+			sub_type.tag = (type_inf.tag & ~utilDwarf.type_info.TAG.array)
+			sub_type.range = None
+			type_inf.sub_type = sub_type
 		return type_inf
 
 	def get_type_info_select_overwrite(self, org, new) -> None:

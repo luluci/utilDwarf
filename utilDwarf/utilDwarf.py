@@ -129,6 +129,7 @@ class utilDwarf:
             # DW_AT_decl_column
             self.decl_column = None
             # DW_AT_type
+            # 関数ポインタは戻り値の型を自身の型としている
             self.type = None
             # DW_AT_location
             self.location = None
@@ -603,15 +604,38 @@ class utilDwarf:
             case "DW_AT_type":
                 type_inf.child_type = at_entry.type
                 tag_entry.type = at_entry.type
-            case "DW_AT_byte_size":
-                type_inf.byte_size = at_entry.byte_size
-                tag_entry.byte_size = at_entry.byte_size
             case "DW_AT_sibling":
                 type_inf.sibling_addr = at_entry.sibling_addr
                 tag_entry.sibling_addr = at_entry.sibling_addr
             case "DW_AT_const_value":
                 type_inf.const_value = at_entry.const_value
                 tag_entry.const_value = at_entry.const_value
+            case "DW_AT_byte_size":
+                type_inf.byte_size = at_entry.byte_size
+                tag_entry.byte_size = at_entry.byte_size
+            case "DW_AT_address_class":
+                type_inf.address_class = at_entry.address_class
+                self.register_address_class(type_inf)
+                tag_entry.address_class = at_entry.address_class
+            case "DW_AT_declaration":
+                type_inf.incomplete = at_entry.incomplete
+                tag_entry.incomplete = at_entry.incomplete
+
+            # struct/union系
+            case "DW_AT_data_member_location":
+                type_inf.member_location = at_entry.data_member_location
+                tag_entry.data_member_location = at_entry.data_member_location
+            case "DW_AT_bit_offset":
+                type_inf.bit_offset = at_entry.bit_offset
+                tag_entry.bit_offset = at_entry.bit_offset
+            case "DW_AT_bit_size":
+                type_inf.bit_size = at_entry.bit_size
+                tag_entry.bit_size = at_entry.bit_size
+
+            # fuction系
+            case "DW_AT_prototyped":
+                type_inf.prototyped = at_entry.prototyped
+                tag_entry.prototyped = at_entry.prototyped
 
             case "DW_AT_encoding":
                 type_inf.encoding = at_entry.encoding
@@ -779,38 +803,17 @@ class utilDwarf:
         """
         self.analyze_die_TAG_structure_union_type_impl(die, parent, utilDwarf.type_info.TAG.union)
 
-    def analyze_die_TAG_structure_union_type_impl(self, die: DIE, parent: entry, tag: type_info.TAG):
+    def analyze_die_TAG_structure_union_type_impl(self, die: DIE, tag_entry: entry, tag: type_info.TAG):
         # type_info取得
         type_inf = self.new_type_info(die.offset, tag)
         # Attr取得
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_byte_size":
-                type_inf.byte_size = entry.byte_size
-                parent.byte_size = entry.byte_size
-            elif at == "DW_AT_decl_file":
-                file_no = entry.decl_file
-                type_inf.decl_file = self._active_cu.file_list[file_no]
-                parent.decl_file = entry.decl_file
-            elif at == "DW_AT_decl_line":
-                type_inf.decl_line = entry.decl_line
-                parent.decl_line = entry.decl_line
-            elif at == "DW_AT_decl_column":
-                type_inf.decl_column = entry.decl_column
-                parent.decl_column = entry.decl_column
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            elif at == "DW_AT_declaration":
-                type_inf.incomplete = entry.incomplete
-                parent.incomplete = entry.incomplete
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DECL
                 DW_AT_abstract_origin
@@ -818,8 +821,6 @@ class utilDwarf:
                 DW_AT_allocated
                 DW_AT_associated
                 DW_AT_data_location
-                DW_AT_declaration
-                DW_AT_description
                 DW_AT_specification
                 DW_AT_start_scope
                 DW_AT_visibility
@@ -850,9 +851,9 @@ class utilDwarf:
                 case _:
                     # ありえないパス
                     if self._debug_warning:
-                        print("?: " + child.tag)
+                        print("struct/union child?: " + child.tag)
 
-    def analyze_die_TAG_member(self, die: DIE, parent: entry) -> type_info:
+    def analyze_die_TAG_member(self, die: DIE, tag_entry: entry) -> type_info:
         """
         DW_TAG_member
         """
@@ -861,45 +862,13 @@ class utilDwarf:
 
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_type":
-                type_inf.child_type = entry.type
-                parent.type = entry.type
-            elif at == "DW_AT_data_member_location":
-                type_inf.member_location = entry.data_member_location
-                parent.data_member_location = entry.data_member_location
-            elif at == "DW_AT_byte_size":
-                type_inf.byte_size = entry.byte_size
-                parent.byte_size = entry.byte_size
-            elif at == "DW_AT_bit_offset":
-                type_inf.bit_offset = entry.bit_offset
-                parent.bit_offset = entry.bit_offset
-            elif at == "DW_AT_bit_size":
-                type_inf.bit_size = entry.bit_size
-                parent.bit_size = entry.bit_size
-            elif at == "DW_AT_decl_file":
-                file_no = entry.decl_file
-                type_inf.decl_file = self._active_cu.file_list[file_no]
-                parent.decl_file = entry.decl_file
-            elif at == "DW_AT_decl_line":
-                type_inf.decl_line = entry.decl_line
-                parent.decl_line = entry.decl_line
-            elif at == "DW_AT_decl_column":
-                type_inf.decl_column = entry.decl_column
-                parent.decl_column = entry.decl_column
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DECL
                 DW_AT_accessibility
-                DW_AT_declaration
-                DW_AT_description
                 DW_AT_mutable
                 DW_AT_visibility
                 """
@@ -917,7 +886,7 @@ class utilDwarf:
         # 		print("        memloc: " + str(type_inf.member_location))
         return type_inf
 
-    def analyze_die_TAG_array_type(self, die: DIE, parent: entry):
+    def analyze_die_TAG_array_type(self, die: DIE, tag_entry: entry):
         """
         DW_TAG_array_type
         """
@@ -926,21 +895,10 @@ class utilDwarf:
         # Attr check
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_type":
-                type_inf.child_type = entry.type
-                parent.type = entry.type
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            elif at == "DW_AT_allocated":
-                pass
-            elif at == "DW_AT_associated":
-                pass
-            elif at == "DW_AT_data_location":
-                pass
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DECL
                 DW_AT_abstract_origin
@@ -967,10 +925,10 @@ class utilDwarf:
                     # Attr check
                     for at in child.attributes.keys():
                         # Attribute Entry生成
-                        entry = self.analyze_die_AT(child.attributes[at])
+                        at_entry = self.analyze_die_AT(child.attributes[at])
 
                         if at == "DW_AT_count":
-                            type_inf.range = entry.count
+                            type_inf.range = at_entry.count
                 elif child.tag == "DW_TAG_enumeration_type":
                     pass
         # debug comment
@@ -978,26 +936,24 @@ class utilDwarf:
     # 		print("    type  : " + str(type_inf.typedef))
     # 		print("    range : " + str(type_inf.range))
 
-    def analyze_die_TAG_subroutine_type(self, die: DIE, parent: entry):
+    def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: entry):
         # type_info取得
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.func)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_type":
-                # 返り値型
-                type_inf.result_type = entry.type
-                parent.type = entry.type
-            elif at == "DW_AT_prototyped":
-                type_inf.prototyped = entry.prototyped
-                parent.prototyped = entry.prototyped
-            else:
-                if self._debug_warning:
-                    print("subroutine_type:?:" + at)
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            match at_entry.tag:
+                case "DW_AT_type":
+                    type_inf.result_type = at_entry.type
+                    tag_entry.type = at_entry.type
+                case _:
+                    result = self.set_type_inf(type_inf, tag_entry, at_entry)
+                    if not result:
+                        """
+                        """
+                        if self._debug_warning:
+                            print("subroutine_type:?:" + at)
         # child check
         if die.has_children:
             child: DIE
@@ -1025,7 +981,7 @@ class utilDwarf:
         #
         return param_inf
 
-    def analyze_die_TAG_type_qualifier(self, die: DIE, parent: entry, tag: type_info.TAG):
+    def analyze_die_TAG_type_qualifier(self, die: DIE, tag_entry: entry, tag: type_info.TAG):
         """
         DW_TAG_const_type
         DW_TAG_pointer_type
@@ -1037,27 +993,10 @@ class utilDwarf:
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_type":
-                type_inf.child_type = entry.type
-                parent.type = entry.type
-            elif at == "DW_AT_address_class":
-                type_inf.address_class = entry.address_class
-                self.register_address_class(type_inf)
-                parent.address_class = entry.address_class
-            elif at == "DW_AT_byte_size":
-                type_inf.byte_size = entry.byte_size
-                parent.byte_size = entry.byte_size
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            # 			elif at == "DW_AT_count":
-            # 				pass
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DW_AT_allocated
                 DW_AT_associated
@@ -1076,7 +1015,7 @@ class utilDwarf:
     # 		print("    name  : " + type_inf.name)
     # 		print("    type  : " + str(type_inf.typedef))
 
-    def analyze_die_TAG_typedef(self, die: DIE, parent: entry):
+    def analyze_die_TAG_typedef(self, die: DIE, tag_entry: entry):
         """
         DW_TAG_typedef
         """
@@ -1085,28 +1024,10 @@ class utilDwarf:
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_type":
-                type_inf.child_type = entry.type
-                parent.type = entry.type
-            elif at == "DW_AT_decl_file":
-                file_no = entry.decl_file
-                parent.decl_file = entry.decl_file
-                type_inf.decl_file = self._active_cu.file_list[file_no]
-            elif at == "DW_AT_decl_line":
-                type_inf.decl_line = entry.decl_line
-                parent.decl_line = entry.decl_line
-            elif at == "DW_AT_decl_column":
-                type_inf.decl_column = entry.decl_column
-                parent.decl_column = entry.decl_column
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DECL
                 DW_AT_abstract_origin
@@ -1114,8 +1035,6 @@ class utilDwarf:
                 DW_AT_allocated
                 DW_AT_associated
                 DW_AT_data_location
-                DW_AT_declaration
-                DW_AT_description
                 DW_AT_start_scope
                 DW_AT_visibility
                 """

@@ -103,6 +103,7 @@ class utilDwarf:
         """
         Dwarf形式は"Entry"の集合と定義する
         そのEntryの定義クラス
+        DW_TAG_*, DW_ATTR_* の両方に対応する。
         """
 
         def __init__(self, tag: str, size: int, cu) -> None:
@@ -383,6 +384,8 @@ class utilDwarf:
         # 型情報
             case "DW_TAG_base_type":
                 self.analyze_die_TAG_base_type(die, entry)
+            case "DW_TAG_enumeration_type":
+                self.analyze_die_TAG_enumeration_type(die, entry)
             case "DW_TAG_structure_type":
                 self.analyze_die_TAG_structure_type(die, entry)
             case "DW_TAG_union_type":
@@ -511,7 +514,7 @@ class utilDwarf:
     def analyze_die_TAG_compile_unit(self, cu: CompileUnit, die: DIE, tag_entry: entry):
         """
         DW_TAG_compile_unit
-        parent: DW_TAG_compile_unit entry
+        tag_entry: DW_TAG_compile_unit entry
         """
         # CompileUnitInfo格納インスタンスを作成
         self._active_cu = utilDwarf.cu_info()
@@ -574,30 +577,48 @@ class utilDwarf:
         # 		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
         # 		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
+    def set_type_inf(self, type_inf: type_info, tag_entry: entry, at_entry: entry):
+        """
+        type_info作成共通処理
+        type_infoへ DW_AT_* entry を展開する共通処理。
+        個別処理は analyze_die_TAG_* 内で行う。
+        DW_TAG_* entry にも展開して情報を集約して保持する。
+        """
+        match at_entry.tag:
+            case "DW_AT_name":
+                type_inf.name = at_entry.name
+                tag_entry.name = at_entry.name
+            case "DW_AT_type":
+                type_inf.child_type = at_entry.type
+                tag_entry.type = at_entry.type
+            case "DW_AT_encoding":
+                type_inf.encoding = at_entry.encoding
+                tag_entry.encoding = at_entry.encoding
+            case "DW_AT_byte_size":
+                type_inf.byte_size = at_entry.byte_size
+                tag_entry.byte_size = at_entry.byte_size
+            case "DW_AT_sibling":
+                type_inf.sibling_addr = at_entry.sibling_addr
+                tag_entry.sibling_addr = at_entry.sibling_addr
+            case _:
+                # 未実装DW_AT_*のときはFalseを返す
+                return False
+        # 解析を実施したらTrueを返す
+        return True
 
-    def analyze_die_TAG_base_type(self, die: DIE, parent: entry):
+    def analyze_die_TAG_base_type(self, die: DIE, tag_entry: entry):
         """
         DW_TAG_base_type
+        tag_entry: DW_TAG_base_type entry
         """
         # type_info取得
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
-            if at == "DW_AT_name":
-                type_inf.name = entry.name
-                parent.name = entry.name
-            elif at == "DW_AT_encoding":
-                type_inf.encoding = entry.encoding
-                parent.encoding = entry.encoding
-            elif at == "DW_AT_byte_size":
-                type_inf.byte_size = entry.byte_size
-                parent.byte_size = entry.byte_size
-            elif at == "DW_AT_sibling":
-                type_inf.sibling_addr = entry.sibling_addr
-                parent.sibling_addr = entry.sibling_addr
-            else:
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
                 """
                 DW_AT_allocated
                 DW_AT_associated
@@ -615,6 +636,44 @@ class utilDwarf:
                 """
                 if self._debug_warning:
                     print("base_type:?:" + at)
+        # child check
+        if die.has_children:
+            child: DIE
+            for child in die.iter_children():
+                if self._debug_warning:
+                    print("unproc child.")
+
+    def analyze_die_TAG_enumeration_type(self, die: DIE, tag_entry: entry):
+        """
+        DW_TAG_enumeration_type
+        tag_entry: DW_TAG_* entry
+        """
+        # type_info取得
+        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+        for at in die.attributes.keys():
+            # Attribute Entry生成
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
+                """
+                DW_AT_abstract_origin
+                DW_AT_accessibility
+                DW_AT_allocated
+                DW_AT_associated
+                DW_AT_bit_size
+                DW_AT_bit_offset
+                DW_AT_data_location
+                DW_AT_decimal_scale
+                DW_AT_decimal_sign
+                DW_AT_description
+                DW_AT_digit_count
+                DW_AT_enum_class
+                DW_AT_start_scope
+                DW_AT_visibility
+                """
+                if self._debug_warning:
+                    print("enum_type:?:" + at)
         # child check
         if die.has_children:
             child: DIE

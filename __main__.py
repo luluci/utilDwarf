@@ -34,7 +34,10 @@ def dump_memmap(var: utilDwarf.memmap.var_type, depth: int = 0):
     file = ""
     if var.decl_file is not None:
         var.decl_file: utilDwarf.cu_info.file_entry
-        file = var.decl_file.full_path
+        if var.decl_file.proj_rel_path is None:
+            file = var.decl_file.full_path
+        else:
+            file = var.decl_file.proj_rel_path
     # データ出力
     if var.tag == utilDwarf.memmap.var_type.TAG.array:
         print(f"0x{var.address:08X}\t{tag}\t{var.byte_size}\t{indent}{var.name}[{var.array_size}]\t({file})")

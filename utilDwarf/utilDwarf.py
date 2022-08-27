@@ -98,6 +98,12 @@ class utilDwarf:
             # 0 は「ファイル無し」定義なのでNoneを詰めておく
             self.file_list: List[utilDwarf.cu_info.file_entry] = []
             self.include_dir_list: List[str] = []
+            #
+            self.producer = None
+            self.language = None
+            self.stmt_list = None
+            self.low_pc = None
+            self.high_pc = None
 
     class entry:
         """
@@ -162,6 +168,23 @@ class utilDwarf:
             self.frame_base_addr = None
             # DW_AT_const_value
             self.const_value = None
+            # DW_AT_accessibility: 1:public 3:private
+            self.accessibility = None
+            # DW_AT_return_addr
+            self.return_addr = None
+            # DW_AT_high_pc
+            self.high_pc = None
+            # DW_AT_low_pc
+            self.low_pc = None
+            # DW_AT_stmt_list
+            self.stmt_list = None
+            # DW_AT_language
+            self.language = None
+            # DW_AT_producer: compilerを示す文字列
+            self.producer = None
+            self.accessibility = None
+            # DW_AT_artificial: 同じソース上で宣言されているかどうか？
+            self.artificial = None
 
     class var_info:
         def __init__(self) -> None:
@@ -190,6 +213,15 @@ class utilDwarf:
             self.decl_file = None
             self.decl_line = None
             self.decl_column = None
+            self.accessibility = None
+            # DW_AT_high_pc
+            self.high_pc = None
+            # DW_AT_low_pc
+            self.low_pc = None
+            # DW_AT_declaration
+            self.declaration = None
+            # DW_AT_external: 外部結合
+            self.external = None
 
     class type_info:
         class TAG(enum.Flag):
@@ -220,6 +252,10 @@ class utilDwarf:
             self.encoding = None
             self.member = []
             self.member_location = None
+            # メンバ関数
+            self.method = []
+            # DW_AT_accessibility: 1:public 3:private
+            self.accessibility = None
             self.child_type = None
             self.result_type = None
             self.range = None
@@ -400,6 +436,12 @@ class utilDwarf:
                 self.analyze_die_TAG_unspecified_type(die, entry)
             case "DW_TAG_enumeration_type":
                 self.analyze_die_TAG_enumeration_type(die, entry)
+            case "DW_TAG_enumerator":
+                # おそらく全部重複
+                pass
+            case "DW_TAG_class_type":
+                # 暫定でstructと同様に解析
+                self.analyze_die_TAG_structure_type(die, entry)
             case "DW_TAG_structure_type":
                 self.analyze_die_TAG_structure_type(die, entry)
             case "DW_TAG_union_type":
@@ -516,6 +558,30 @@ class utilDwarf:
             case "DW_AT_sibling":
                 entry.sibling_addr = self.analyze_die_AT_FORM(attr)
 
+            case "DW_AT_return_addr":
+                entry.return_addr = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_high_pc":
+                entry.high_pc = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_low_pc":
+                entry.low_pc = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_stmt_list":
+                entry.stmt_list = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_language":
+                entry.language = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_producer":
+                entry.producer = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_accessibility":
+                entry.accessibility = self.analyze_die_AT_FORM(attr)
+
+            case "DW_AT_artificial":
+                entry.artificial = self.analyze_die_AT_FORM(attr)
+
             case _:
                 print("unimplemented AT: " + attr.name)
         #
@@ -565,10 +631,30 @@ class utilDwarf:
                     tag_entry.compile_dir = entry.compile_dir
                     # cu_info
                     self._active_cu.compile_dir = entry.compile_dir
+                
+                case "DW_AT_producer":
+                    tag_entry.producer = entry.producer
+                    self._active_cu.producer = entry.producer
+                
+                case "DW_AT_language":
+                    tag_entry.language = entry.language
+                    self._active_cu.language = entry.language
+
+                case "DW_AT_stmt_list":
+                    tag_entry.stmt_list = entry.stmt_list
+                    self._active_cu.stmt_list = entry.stmt_list
+
+                case "DW_AT_high_pc":
+                    tag_entry.high_pc = entry.high_pc
+                    self._active_cu.high_pc = entry.high_pc
+
+                case "DW_AT_low_pc":
+                    tag_entry.low_pc = entry.low_pc
+                    self._active_cu.low_pc = entry.low_pc
 
                 case _:
                     if self._debug_warning:
-                        print("unknown attribute detected: " + at)
+                        print("DW_TAG_compile_unit: unknown attribute detected: " + at)
 
         # failsafe: 必要なATが存在しない場合
         # コンパイルディレクトリはカレントディレクトリを見なす
@@ -647,6 +733,9 @@ class utilDwarf:
             case "DW_AT_bit_size":
                 type_inf.bit_size = at_entry.bit_size
                 tag_entry.bit_size = at_entry.bit_size
+            case "DW_AT_accessibility":
+                type_inf.accessibility = at_entry.accessibility
+                tag_entry.accessibility = at_entry.accessibility
 
             # fuction系
             case "DW_AT_prototyped":
@@ -849,19 +938,22 @@ class utilDwarf:
         child: DIE
         for child in die.iter_children():
             # entry生成
-            entry = self.add_entry(child.offset, child.tag, child.size)
+            tag_entry = self.add_entry(child.offset, child.tag, child.size)
 
-            match child.tag:
+            match tag_entry.tag:
                 case "DW_TAG_member":
-                    mem_inf = self.analyze_die_TAG_member(child, entry)
+                    mem_inf = self.analyze_die_TAG_member(child, tag_entry)
                     type_inf.member.append(mem_inf)
                 case "DW_TAG_array_type":
                     # struct/union/class内で使う型の定義
                     # よって, member要素ではない
-                    self.analyze_die_TAG_array_type(child, entry)
+                    self.analyze_die_TAG_array_type(child, tag_entry)
                 case "DW_TAG_const_type" | "DW_TAG_pointer_type" | "DW_TAG_restrict_type" | "DW_TAG_volatile_type":
                     # struct/union/class内で使う型の定義
-                    self.analyze_die_TAG_type_qualifier(child, entry, utilDwarf.type_info.TAG.pointer)
+                    self.analyze_die_TAG_type_qualifier(child, tag_entry, utilDwarf.type_info.TAG.pointer)
+                case "DW_TAG_subprogram":
+                    f_inf = self.analyze_die_TAG_subprogram_impl(child)
+                    type_inf.method.append(f_inf)
                 case _:
                     # ありえないパス
                     if self._debug_warning:
@@ -1144,14 +1236,17 @@ class utilDwarf:
             raise Exception("unimplemented AT_localtion form: " + attr.form)
 
     def analyze_die_TAG_subprogram(self, die: DIE):
-        f_inf: utilDwarf.func_info = None
-        if "DW_AT_external" in die.attributes.keys():
+        f_inf = self.analyze_die_TAG_subprogram_impl(die)
+        if f_inf.external is True:
             # 関数
             self._func_tbl.append(utilDwarf.func_info())
             f_inf = self._func_tbl[len(self._func_tbl) - 1]
         else:
-            # ？
+            # おそらくすべて重複
             return
+
+    def analyze_die_TAG_subprogram_impl(self, die: DIE) -> func_info:
+        f_inf = utilDwarf.func_info()
         # AT取得
         call_convention = 1  # デフォルトがDW_CC_normal
         for at in die.attributes.keys():
@@ -1160,7 +1255,7 @@ class utilDwarf:
             entry = self.analyze_die_AT(die.attributes[at])
 
             if at == "DW_AT_external":
-                pass
+                f_inf.external = entry.external
             elif at == "DW_AT_name":
                 f_inf.name = entry.name
             elif at == "DW_AT_type":
@@ -1175,9 +1270,13 @@ class utilDwarf:
             elif at == "DW_AT_decl_column":
                 f_inf.decl_column = entry.decl_column
             elif at == "DW_AT_low_pc":
-                pass
+                f_inf.low_pc = entry.low_pc
             elif at == "DW_AT_high_pc":
-                pass
+                f_inf.high_pc = entry.high_pc
+            elif at == "DW_AT_accessibility":
+                f_inf.accessibility = entry.accessibility
+            elif at == "DW_AT_declaration":
+                f_inf.declaration = entry.declaration
             elif at == "DW_AT_frame_base":
                 f_inf.frame_base_addr = entry.frame_base_addr
                 self.dwarf_expr.set_frame_base(entry.frame_base_addr)
@@ -1198,6 +1297,8 @@ class utilDwarf:
                     f_inf.params.append(param_inf)
                 elif child.tag == "DW_TAG_variable":
                     pass
+        #
+        return f_inf
 
     """
     DW_FORM eval
@@ -1213,7 +1314,8 @@ class utilDwarf:
 
     def analyze_die_AT_FORM_impl(self, form: int, value: any):
         match form:
-            # case DW_FORM.addr.value:
+            case DW_FORM.addr.value:
+                return value
 
             case DW_FORM.block1.value:
                 # [ length data1 data2 ... ] or [ DWARF expr ]

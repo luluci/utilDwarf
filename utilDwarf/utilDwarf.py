@@ -80,7 +80,6 @@ DW_FORM_map = {
 
 
 class utilDwarf:
-
     class cu_info:
         class file_entry:
             def __init__(self) -> None:
@@ -207,7 +206,7 @@ class utilDwarf:
             restrict = enum.auto()  # restrict
             enum = enum.auto()  # enumeration type
 
-            func_ptr = func | pointer   # function pointer
+            func_ptr = func | pointer  # function pointer
 
         def __init__(self) -> None:
             self.tag = utilDwarf.type_info.TAG.none
@@ -301,7 +300,7 @@ class utilDwarf:
         # DwarfAddres Entry取得
         if addr not in self._entry_map.keys():
             raise Exception(f"entry(offset:{addr}) is not exist!")
-            #return self.add_entry(addr, None, None)
+            # return self.add_entry(addr, None, None)
         else:
             return self._entry_map[addr]
 
@@ -380,7 +379,7 @@ class utilDwarf:
                 if self._debug_warning:
                     print("DW_TAG_dwarf_procedure tag.")
 
-        # 変数定義
+            # 変数定義
             case "DW_TAG_variable":
                 self.analyze_die_TAG_variable(die, entry)
 
@@ -388,11 +387,11 @@ class utilDwarf:
                 if self._debug_warning:
                     print("DW_TAG_constant.")
 
-        # 関数定義
+            # 関数定義
             case "DW_TAG_subprogram":
                 self.analyze_die_TAG_subprogram(die)
 
-        # 型情報
+            # 型情報
             case "DW_TAG_base_type":
                 self.analyze_die_TAG_base_type(die, entry)
             case "DW_TAG_unspecified_type":
@@ -425,7 +424,7 @@ class utilDwarf:
                 # おそらく全部重複
                 pass
 
-        # type-qualifier
+            # type-qualifier
             case "DW_TAG_const_type":
                 self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.const)
             case "DW_TAG_pointer_type":
@@ -539,9 +538,9 @@ class utilDwarf:
         # address size
         self._active_cu.address_size = cu.header["address_size"]
         self.dwarf_expr.init_address_size(self._active_cu.address_size)
-        # 
+        #
         self._active_cu.debug_abbrev_offset = cu.header["debug_abbrev_offset"]
-        # 
+        #
         self._active_cu.unit_length = cu.header["unit_length"]
         # file_entryは 0:存在しない になるので、Noneを入れておく
         self._active_cu.file_list.append(None)
@@ -589,6 +588,21 @@ class utilDwarf:
         # 		print("    address_size       : " + str(self._curr_cu_info.address_size))
         # 		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
         # 		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
+
+    def new_type_info(self, addr: int, tag: type_info.TAG) -> type_info:
+        # addr: Dwarf内でのアドレス
+        # 必要ならノード作成
+        if addr not in self._type_tbl.keys():
+            self._type_tbl[addr] = utilDwarf.type_info()
+        else:
+            # print("duplicate!")
+            pass
+        # 型情報インスタンスへの参照取得
+        type_inf = self._type_tbl[addr]
+        # 型情報更新
+        type_inf.tag = tag
+
+        return type_inf
 
     def set_type_inf(self, type_inf: type_info, tag_entry: entry, at_entry: entry):
         """
@@ -713,8 +727,7 @@ class utilDwarf:
             # type_info更新
             result = self.set_type_inf(type_inf, tag_entry, at_entry)
             if not result:
-                """
-                """
+                """ """
                 if self._debug_warning:
                     print("unspecified_type:?:" + at)
         # child check
@@ -784,11 +797,10 @@ class utilDwarf:
             # type_info更新
             result = self.set_type_inf(type_inf, tag_entry, at_entry)
             if not result:
-                """
-                """
+                """ """
                 if self._debug_warning:
                     print("enumerator:?:" + at)
-        
+
         return type_inf
 
     def analyze_die_TAG_structure_type(self, die: DIE, parent: entry):
@@ -878,12 +890,6 @@ class utilDwarf:
         if die.has_children:
             for child in die.iter_children():
                 pass
-        # debug comment
-        # 		print("    DIE tag   : " + die.tag)
-        # 		print("        offset: " + str(die.offset))
-        # 		print("        name  : " + type_inf.name)
-        # 		print("        type  : " + str(type_inf.typedef))
-        # 		print("        memloc: " + str(type_inf.member_location))
         return type_inf
 
     def analyze_die_TAG_array_type(self, die: DIE, tag_entry: entry):
@@ -931,10 +937,6 @@ class utilDwarf:
                             type_inf.range = at_entry.count
                 elif child.tag == "DW_TAG_enumeration_type":
                     pass
-        # debug comment
-
-    # 		print("    type  : " + str(type_inf.typedef))
-    # 		print("    range : " + str(type_inf.range))
 
     def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: entry):
         # type_info取得
@@ -950,8 +952,7 @@ class utilDwarf:
                 case _:
                     result = self.set_type_inf(type_inf, tag_entry, at_entry)
                     if not result:
-                        """
-                        """
+                        """ """
                         if self._debug_warning:
                             print("subroutine_type:?:" + at)
         # child check
@@ -1010,10 +1011,6 @@ class utilDwarf:
             for child in die.iter_children():
                 if self._debug_warning:
                     print("unproc child.")
-        # debug comment
-
-    # 		print("    name  : " + type_inf.name)
-    # 		print("    type  : " + str(type_inf.typedef))
 
     def analyze_die_TAG_typedef(self, die: DIE, tag_entry: entry):
         """
@@ -1046,25 +1043,6 @@ class utilDwarf:
             for child in die.iter_children():
                 if self._debug_warning:
                     print("unproc child.")
-        # debug comment
-
-    # 		print("    name  : " + type_inf.name)
-    # 		print("    type  : " + str(type_inf.typedef))
-
-    def new_type_info(self, addr: int, tag: type_info.TAG) -> type_info:
-        # addr: Dwarf内でのアドレス
-        # 必要ならノード作成
-        if addr not in self._type_tbl.keys():
-            self._type_tbl[addr] = utilDwarf.type_info()
-        else:
-            # print("duplicate!")
-            pass
-        # 型情報インスタンスへの参照取得
-        type_inf = self._type_tbl[addr]
-        # 型情報更新
-        type_inf.tag = tag
-
-        return type_inf
 
     def analyze_die_TAG_variable(self, die: DIE, parent: entry):
         """

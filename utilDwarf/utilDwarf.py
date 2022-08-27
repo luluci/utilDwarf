@@ -105,9 +105,11 @@ class utilDwarf:
         そのEntryの定義クラス
         """
 
-        def __init__(self, label: str, size: int, cu) -> None:
+        def __init__(self, tag: str, size: int, cu) -> None:
             # DW_TAG_*, DW_ATTR_*
-            self.label = label
+            # 規格上はそれぞれ "tag names", "attribute names" と記載
+            # pyelftoolsではtagというメンバ名で統一されているので、こちらに合わせる
+            self.tag = tag
             self.size = size
             self.cu_info: utilDwarf.cu_info = cu
 
@@ -273,7 +275,13 @@ class utilDwarf:
         else:
             # Dwarf上のアドレス=オフセットが重複した？
             if self._debug_warning:
-                print(f"Detect Duplicate: addr={addr}, label={label}")
+                match self._entry_map[addr].tag:
+                    case "DW_TAG_compile_unit":
+                        # CompileUnitは事前チェックしているため
+                        # 共通処理実行時に重複する
+                        pass
+                    case _:
+                        print(f"Detect Duplicate: addr={addr}, label={label}")
         #
         return self._entry_map[addr]
 
@@ -351,76 +359,76 @@ class utilDwarf:
         # entry生成
         entry = self.add_entry(die.offset, die.tag, die.size)
 
-        if die.tag == "DW_TAG_compile_unit":
-            # 最初に解析済み
-            # self.analyze_die_TAG_compile_unit(die, entry)
-            pass
+        match entry.tag:
+            case "DW_TAG_compile_unit":
+                # self.analyze_die_TAG_compile_unit(die, entry)
+                pass
 
-        elif die.tag == "DW_TAG_dwarf_procedure":
-            if self._debug_warning:
-                print("DW_TAG_dwarf_procedure tag.")
+            case "DW_TAG_dwarf_procedure":
+                if self._debug_warning:
+                    print("DW_TAG_dwarf_procedure tag.")
 
         # 変数定義
-        elif die.tag == "DW_TAG_variable":
-            self.analyze_die_TAG_variable(die, entry)
+            case "DW_TAG_variable":
+                self.analyze_die_TAG_variable(die, entry)
 
-        elif die.tag == "DW_TAG_constant":
-            if self._debug_warning:
-                print("DW_TAG_constant.")
+            case "DW_TAG_constant":
+                if self._debug_warning:
+                    print("DW_TAG_constant.")
 
         # 関数定義
-        elif die.tag == "DW_TAG_subprogram":
-            self.analyze_die_TAG_subprogram(die)
+            case "DW_TAG_subprogram":
+                self.analyze_die_TAG_subprogram(die)
 
         # 型情報
-        elif die.tag == "DW_TAG_base_type":
-            self.analyze_die_TAG_base_type(die, entry)
-        elif die.tag == "DW_TAG_structure_type":
-            self.analyze_die_TAG_structure_type(die, entry)
-        elif die.tag == "DW_TAG_union_type":
-            self.analyze_die_TAG_union_type(die, entry)
-        elif die.tag == "DW_TAG_typedef":
-            self.analyze_die_TAG_typedef(die, entry)
-        elif die.tag == "DW_TAG_array_type":
-            self.analyze_die_TAG_array_type(die, entry)
-        elif die.tag == "DW_TAG_subroutine_type":
-            self.analyze_die_TAG_subroutine_type(die, entry)
-        elif die.tag == "DW_TAG_inlined_subroutine":
-            print("DW_TAG_inlined_subroutine tag.")
-        elif die.tag == "DW_TAG_member":
-            # print("DW_TAG_member tag.")
-            # self.analyze_die_TAG_member(die)
-            # おそらく全部重複
-            pass
-        elif die.tag == "DW_TAG_subrange_type":
-            # print("DW_TAG_subrange_type tag.")
-            # おそらく全部重複
-            pass
-        elif die.tag == "DW_TAG_formal_parameter":
-            # print("DW_TAG_formal_parameter tag.")
-            # おそらく全部重複
-            pass
+            case "DW_TAG_base_type":
+                self.analyze_die_TAG_base_type(die, entry)
+            case "DW_TAG_structure_type":
+                self.analyze_die_TAG_structure_type(die, entry)
+            case "DW_TAG_union_type":
+                self.analyze_die_TAG_union_type(die, entry)
+            case "DW_TAG_typedef":
+                self.analyze_die_TAG_typedef(die, entry)
+            case "DW_TAG_array_type":
+                self.analyze_die_TAG_array_type(die, entry)
+            case "DW_TAG_subroutine_type":
+                self.analyze_die_TAG_subroutine_type(die, entry)
+            case "DW_TAG_inlined_subroutine":
+                print("DW_TAG_inlined_subroutine tag.")
+            case "DW_TAG_member":
+                # print("DW_TAG_member tag.")
+                # self.analyze_die_TAG_member(die)
+                # おそらく全部重複
+                pass
+            case "DW_TAG_subrange_type":
+                # print("DW_TAG_subrange_type tag.")
+                # おそらく全部重複
+                pass
+            case "DW_TAG_formal_parameter":
+                # print("DW_TAG_formal_parameter tag.")
+                # おそらく全部重複
+                pass
 
         # type-qualifier
-        elif die.tag == "DW_TAG_const_type":
-            self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.const)
-        elif die.tag == "DW_TAG_pointer_type":
-            self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.pointer)
-        elif die.tag == "DW_TAG_restrict_type":
-            self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.restrict)
-        elif die.tag == "DW_TAG_volatile_type":
-            self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.volatile)
-        elif die.tag == {"DW_TAG_packed_type", "DW_TAG_reference_type", "DW_TAG_shared_type"}:
-            pass
+            case "DW_TAG_const_type":
+                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.const)
+            case "DW_TAG_pointer_type":
+                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.pointer)
+            case "DW_TAG_restrict_type":
+                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.restrict)
+            case "DW_TAG_volatile_type":
+                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.volatile)
+            case "DW_TAG_packed_type" | "DW_TAG_reference_type" | "DW_TAG_shared_type":
+                pass
 
-        elif die.tag == "DW_TAG_unspecified_type":
-            if self._debug_warning:
-                print("DW_TAG_unspecified_type tag.")
-
-        else:
-            if die.tag is not None:
+            case "DW_TAG_unspecified_type":
                 if self._debug_warning:
-                    print("unimplemented tag: " + die.tag)
+                    print("DW_TAG_unspecified_type tag.")
+
+            case _:
+                if die.tag is not None:
+                    if self._debug_warning:
+                        print("unimplemented tag: " + die.tag)
 
     """
     DW_AT_* 解析

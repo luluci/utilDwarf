@@ -118,6 +118,8 @@ class utilDwarf:
             self.name = None
             #
             self.compile_dir = None
+            # DW_AT_description
+            self.description = None
             # DW_AT_external
             self.external = None
             # DW_AT_decl_file
@@ -157,6 +159,8 @@ class utilDwarf:
             self.incomplete = None
             # DW_AT_frame_base
             self.frame_base_addr = None
+            # DW_AT_const_value
+            self.const_value = None
 
     class var_info:
         def __init__(self) -> None:
@@ -200,10 +204,14 @@ class utilDwarf:
             volatile = enum.auto()  # volatile
             pointer = enum.auto()  # pointer
             restrict = enum.auto()  # restrict
+            enum = enum.auto()  # enumeration type
+
+            func_ptr = func | pointer   # function pointer
 
         def __init__(self) -> None:
             self.tag = utilDwarf.type_info.TAG.none
             self.name = None
+            self.description = None
             self.byte_size = None
             self.bit_size = None
             self.bit_offset = None
@@ -223,6 +231,8 @@ class utilDwarf:
             self.decl_file = utilDwarf.cu_info.file_entry()
             self.decl_line = None
             self.decl_column = None
+            # DW_AT_const_value
+            self.const_value = None
             # DW_AT_sibling: 兄弟DIEへの参照(DIE内)アドレス
             self.sibling_addr = None
             # DW_AT_declaration: 宣言のみ、不完全型かどうか
@@ -384,6 +394,8 @@ class utilDwarf:
         # 型情報
             case "DW_TAG_base_type":
                 self.analyze_die_TAG_base_type(die, entry)
+            case "DW_TAG_unspecified_type":
+                self.analyze_die_TAG_unspecified_type(die, entry)
             case "DW_TAG_enumeration_type":
                 self.analyze_die_TAG_enumeration_type(die, entry)
             case "DW_TAG_structure_type":
@@ -591,12 +603,33 @@ class utilDwarf:
             case "DW_AT_type":
                 type_inf.child_type = at_entry.type
                 tag_entry.type = at_entry.type
-            case "DW_AT_encoding":
-                type_inf.encoding = at_entry.encoding
-                tag_entry.encoding = at_entry.encoding
             case "DW_AT_byte_size":
                 type_inf.byte_size = at_entry.byte_size
                 tag_entry.byte_size = at_entry.byte_size
+            case "DW_AT_sibling":
+                type_inf.sibling_addr = at_entry.sibling_addr
+                tag_entry.sibling_addr = at_entry.sibling_addr
+            case "DW_AT_const_value":
+                type_inf.const_value = at_entry.const_value
+                tag_entry.const_value = at_entry.const_value
+
+            case "DW_AT_encoding":
+                type_inf.encoding = at_entry.encoding
+                tag_entry.encoding = at_entry.encoding
+
+            case "DW_AT_description":
+                type_inf.description = at_entry.description
+                tag_entry.description = at_entry.description
+            case "DW_AT_decl_file":
+                file_no = at_entry.decl_file
+                type_inf.decl_file = self._active_cu.file_list[file_no]
+                tag_entry.decl_file = at_entry.decl_file
+            case "DW_AT_decl_line":
+                type_inf.decl_line = at_entry.decl_line
+                tag_entry.decl_line = at_entry.decl_line
+            case "DW_AT_decl_column":
+                type_inf.decl_column = at_entry.decl_column
+                tag_entry.decl_column = at_entry.decl_column
             case "DW_AT_sibling":
                 type_inf.sibling_addr = at_entry.sibling_addr
                 tag_entry.sibling_addr = at_entry.sibling_addr
@@ -641,7 +674,31 @@ class utilDwarf:
             child: DIE
             for child in die.iter_children():
                 if self._debug_warning:
-                    print("unproc child.")
+                    print("base_type: unproc child.")
+
+    def analyze_die_TAG_unspecified_type(self, die: DIE, tag_entry: entry):
+        """
+        DW_TAG_unspecified_type
+        tag_entry: DW_TAG_* entry
+        """
+        # type_info取得
+        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+        for at in die.attributes.keys():
+            # Attribute Entry生成
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
+                """
+                """
+                if self._debug_warning:
+                    print("unspecified_type:?:" + at)
+        # child check
+        if die.has_children:
+            child: DIE
+            for child in die.iter_children():
+                if self._debug_warning:
+                    print("unspecified_type: unproc child.")
 
     def analyze_die_TAG_enumeration_type(self, die: DIE, tag_entry: entry):
         """
@@ -649,7 +706,7 @@ class utilDwarf:
         tag_entry: DW_TAG_* entry
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.enum)
         for at in die.attributes.keys():
             # Attribute Entry生成
             at_entry = self.analyze_die_AT(die.attributes[at])
@@ -676,10 +733,39 @@ class utilDwarf:
                     print("enum_type:?:" + at)
         # child check
         if die.has_children:
-            child: DIE
-            for child in die.iter_children():
+            self.analyze_die_TAG_enumeration_type_child(die, type_inf)
+
+    def analyze_die_TAG_enumeration_type_child(self, die: DIE, type_inf: type_info):
+        child: DIE
+        for child in die.iter_children():
+            # entry生成
+            tag_entry = self.add_entry(child.offset, child.tag, child.size)
+            # tag解析
+            match child.tag:
+                case "DW_TAG_enumerator":
+                    mem_inf = self.analyze_die_TAG_enumerator(child, tag_entry)
+                    type_inf.member.append(mem_inf)
+
+    def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: entry) -> type_info:
+        """
+        DW_TAG_enumerator
+        type_infoを作成して返す
+        """
+        # type_info取得
+        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.none)
+
+        for at in die.attributes.keys():
+            # Attribute Entry生成
+            at_entry = self.analyze_die_AT(die.attributes[at])
+            # type_info更新
+            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            if not result:
+                """
+                """
                 if self._debug_warning:
-                    print("unproc child.")
+                    print("enumerator:?:" + at)
+        
+        return type_inf
 
     def analyze_die_TAG_structure_type(self, die: DIE, parent: entry):
         """
@@ -752,9 +838,6 @@ class utilDwarf:
 
             match child.tag:
                 case "DW_TAG_member":
-                    # type_inf.member.append(utilDwarf.type_info())
-                    # mem_inf = type_inf.member[len(type_inf.member)-1]
-                    # self.analyze_die_TAG_member(child, mem_inf)
                     mem_inf = self.analyze_die_TAG_member(child, entry)
                     type_inf.member.append(mem_inf)
                 case "DW_TAG_array_type":
@@ -1376,6 +1459,7 @@ class utilDwarf:
                 3: 4,  # 3 -> 4byte
                 4: 2,  # 4 -> 2byte
             },
+            "Renesas RX": {},
             "ARM": {},
             "AArch64": {},
         }
@@ -1414,6 +1498,8 @@ class utilDwarf:
                 self.make_memmap_var_struct(var, t_inf)
             case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
                 self.make_memmap_var_struct(var, t_inf)
+            case tag if (tag & utilDwarf.type_info.TAG.enum).value != 0:
+                self.make_memmap_var_base(var, t_inf)
             case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
                 self.make_memmap_var_base(var, t_inf)
             case _:
@@ -1769,6 +1855,15 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
+
+            elif child_type.tag == utilDwarf.type_info.TAG.enum:
+                # name 選択
+                type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
+                # byte_size 選択
+                type_inf.byte_size = self.get_type_info_select(type_inf.byte_size, child_type.byte_size)
+
+                # tagマージ
+                type_inf.tag |= child_type.tag
             else:
                 # 実装忘れ以外ありえない
                 raise Exception("undetected type appeared.")
@@ -1779,6 +1874,17 @@ class utilDwarf:
             type_inf.tag = utilDwarf.type_info.TAG.base
         if type_inf.name is None:
             type_inf.name = "void"
+            # void型でbyte_size未指定の場合はvoid*と推測
+            if type_inf.byte_size is None:
+                type_inf.byte_size = self._active_cu.address_size
+        # byte_sizeチェック
+        if type_inf.byte_size is None:
+            # サイズ指定されていない場合のケアを入れる
+            if (type_inf.tag & utilDwarf.type_info.TAG.func_ptr).value != 0:
+                # 関数ポインタ
+                type_inf.byte_size = self._active_cu.address_size
+            else:
+                raise Exception(f"type:{type_inf.name} is unknown size.")
         # array後処理
         if (type_inf.tag & utilDwarf.type_info.TAG.array).value != 0:
             # array要素の型情報を作成

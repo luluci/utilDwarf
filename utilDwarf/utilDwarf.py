@@ -86,6 +86,7 @@ class utilDwarf:
                 self.dir_path = None
                 self.filename = None
                 self.proj_rel_path = None
+                self.full_path = None
 
         def __init__(self) -> None:
             self.compile_dir = ""
@@ -343,8 +344,9 @@ class utilDwarf:
             # dir_index
             idx = entry.dir_index
             file.dir_path = self._active_cu.include_dir_list[idx]
-            # DW_AT_comp_dirからの相対パス
+            # DW_AT_comp_dirからのパス
             fpath = pathlib.Path(file.dir_path) / file.filename
+            file.full_path = fpath
             # システムインクルードパスは相対パス設定なしとする
             try:
                 file.proj_rel_path = str(fpath.relative_to(self._active_cu.compile_dir))
@@ -1425,7 +1427,7 @@ class utilDwarf:
         # 共通情報作成
         memmap_var.address = var.addr  # 配置アドレス
         memmap_var.name = var.name  # 変数名
-        memmap_var.decl_file = var.decl_file.filename
+        memmap_var.decl_file = var.decl_file
         memmap_var.decl_line = var.decl_line
         # 型情報作成
         memmap_var.byte_size = t_inf.byte_size  # 宣言型サイズ
@@ -1483,7 +1485,7 @@ class utilDwarf:
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
         memmap_var.byte_size = mem_inf.byte_size
-        memmap_var.decl_file = mem_inf.decl_file.filename
+        memmap_var.decl_file = mem_inf.decl_file
         memmap_var.decl_line = mem_inf.decl_line
         memmap_var.typename = mem_inf.name
         memmap_var.pointer = mem_inf.pointer  # pointer
@@ -1498,7 +1500,7 @@ class utilDwarf:
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
         memmap_var.byte_size = mem_inf.byte_size
-        memmap_var.decl_file = mem_inf.decl_file.filename
+        memmap_var.decl_file = mem_inf.decl_file
         memmap_var.decl_line = mem_inf.decl_line
         memmap_var.typename = mem_inf.name
         memmap_var.pointer = mem_inf.pointer  # pointer
@@ -1514,7 +1516,7 @@ class utilDwarf:
         memmap_var.name = "[" + str(idx) + "]"
         memmap_var.byte_size = mem_inf.byte_size
         memmap_var.array_size = mem_inf.range
-        memmap_var.decl_file = mem_inf.decl_file.filename
+        memmap_var.decl_file = mem_inf.decl_file
         memmap_var.decl_line = mem_inf.decl_line
         memmap_var.typename = mem_inf.name
         memmap_var.pointer = mem_inf.pointer  # pointer
@@ -1534,7 +1536,7 @@ class utilDwarf:
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
         memmap_var.byte_size = mem_inf.byte_size
-        memmap_var.decl_file = mem_inf.decl_file.filename
+        memmap_var.decl_file = mem_inf.decl_file
         memmap_var.decl_line = mem_inf.decl_line
         memmap_var.typename = mem_inf.name
         memmap_var.pointer = mem_inf.pointer  # pointer
@@ -1553,7 +1555,7 @@ class utilDwarf:
         memmap_var.tag = memmap.var_type.TAG.struct  # 変数タイプタグ
         memmap_var.address = var.addr  # 配置アドレス
         memmap_var.name = var.name  # 変数名
-        memmap_var.decl_file = var.decl_file.filename
+        memmap_var.decl_file = var.decl_file
         memmap_var.decl_line = var.decl_line
         # 型情報作成
         memmap_var.byte_size = t_inf.byte_size  # 宣言型サイズ
@@ -1599,7 +1601,7 @@ class utilDwarf:
             memmap_var.bit_size = member_inf.bit_size  # ビットサイズ
             memmap_var.bit_offset = member_inf.bit_offset  # ビットオフセット
             # member_inf.member_inf  # ビットフィールドのみ存在? パディングを含むバイト単位サイズ, バイト境界をまたぐ(bit7-8とか)と2バイトになる
-        memmap_var.decl_file = member_inf.decl_file.filename
+        memmap_var.decl_file = member_inf.decl_file
         memmap_var.decl_line = member_inf.decl_line
         # 型情報作成
         memmap_var.byte_size = t_inf.byte_size  # 宣言型サイズ
@@ -1615,7 +1617,7 @@ class utilDwarf:
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
-        memmap_var.decl_file = member_inf.decl_file.filename
+        memmap_var.decl_file = member_inf.decl_file
         memmap_var.decl_line = member_inf.decl_line
         # 型情報作成
         memmap_var.byte_size = t_inf.byte_size  # 宣言型サイズ
@@ -1631,7 +1633,7 @@ class utilDwarf:
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
-        memmap_var.decl_file = member_inf.decl_file.filename
+        memmap_var.decl_file = member_inf.decl_file
         memmap_var.decl_line = member_inf.decl_line
         # 型情報作成
         memmap_var.byte_size = t_inf.byte_size  # 宣言型サイズ
@@ -1654,7 +1656,7 @@ class utilDwarf:
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
-        memmap_var.decl_file = member_inf.decl_file.filename
+        memmap_var.decl_file = member_inf.decl_file
         memmap_var.decl_line = member_inf.decl_line
         # 型情報作成
         memmap_var.tag = t_inf.tag

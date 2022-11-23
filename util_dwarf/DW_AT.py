@@ -2,7 +2,7 @@ import enum
 
 from elftools.dwarf.die import AttributeValue, DIE
 
-from utilDwarf.DW_FORM import DW_FORM_decorder
+from util_dwarf.DW_FORM import DW_FORM_decorder
 
 
 class DW_AT(enum.Enum):

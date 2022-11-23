@@ -2,217 +2,18 @@ import pathlib
 import enum
 import copy
 from typing import Container, List, Dict, Tuple, Any
-from elftools.elf.elffile import ELFFile
 
-# from elftools.dwarf.structs import DWARFStructs
+from elftools.elf.elffile import ELFFile
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import AttributeValue, DIE
 from elftools.dwarf.lineprogram import LineProgram, LineProgramEntry
-
-# from elftools.common.construct_utils import ULEB128
 from elftools.construct.lib.container import Container as elftools_container
 
-from .memmap import memmap
+from util_dwarf import debug_info
 from .DW_AT import DW_AT_decorder, DW_AT, attribute
+from util_dwarf import memmap
 
-
-class utilDwarf:
-    class cu_info:
-        class file_entry:
-            def __init__(self) -> None:
-                self.dir_path = None
-                self.filename = None
-                self.proj_rel_path = None
-                self.full_path = None
-
-        def __init__(self) -> None:
-            self.compile_dir = ""
-            self.filename = ""
-            self.debug_abbrev_offset = None
-            self.unit_length = None
-            self.address_size = None
-            self.offset = None
-            # 0 は「ファイル無し」定義なのでNoneを詰めておく
-            self.file_list: List[utilDwarf.cu_info.file_entry] = []
-            self.include_dir_list: List[str] = []
-            #
-            self.producer = None
-            self.language = None
-            self.stmt_list = None
-            self.low_pc = None
-            self.high_pc = None
-
-    class entry:
-        """
-        Dwarf形式は"Entry"の集合と定義する
-        そのEntryの定義クラス
-        DW_TAG_*, DW_ATTR_* の両方に対応する。
-        """
-
-        def __init__(self, tag: str, size: int, cu) -> None:
-            # DW_TAG_*, DW_ATTR_*
-            # 規格上はそれぞれ "tag names", "attribute names" と記載
-            # pyelftoolsではtagというメンバ名で統一されているので、こちらに合わせる
-            self.tag = tag
-            self.size = size
-            self.cu_info: utilDwarf.cu_info = cu
-            # DW_AT_*
-            self.at: attribute = None
-
-            self.name = None
-            self.compile_dir = None
-            # compilerを示す文字列
-            self.producer = None
-            self.language = None
-
-            # DW_AT_description
-            self.description = None
-            # DW_AT_external
-            self.external = None
-            # DW_AT_decl_file
-            self.decl_file = None
-            # DW_AT_decl_line
-            self.decl_line = None
-            # DW_AT_decl_column
-            self.decl_column = None
-            # DW_AT_type
-            # 関数ポインタは戻り値の型を自身の型としている
-            self.type = None
-            # DW_AT_location
-            self.location = None
-            self.loclistptr = None
-            # DW_AT_declaration
-            self.declaration = None
-            # DW_AT_const_value
-            self.const_value = None
-            # DW_AT_address_class
-            self.address_class = None
-            # DW_AT_prototyped
-            self.prototyped = None
-            # DW_AT_encoding
-            self.encoding = None
-            # DW_AT_byte_size
-            self.byte_size = None
-            # DW_AT_data_member_location
-            self.data_member_location = None
-            # DW_AT_bit_offset
-            self.bit_offset = None
-            # DW_AT_bit_size
-            self.bit_size = None
-            # DW_AT_count
-            self.count = None
-            # DW_AT_sibling: 兄弟DIEへの参照(DIE内)アドレス
-            self.sibling_addr = None
-            # DW_AT_declaration: 宣言のみ、不完全型かどうか
-            self.incomplete = None
-            # DW_AT_frame_base
-            self.frame_base_addr = None
-            # DW_AT_const_value
-            self.const_value = None
-            # DW_AT_accessibility: 1:public 3:private
-            self.accessibility = None
-            # DW_AT_return_addr
-            self.return_addr = None
-            # DW_AT_high_pc
-            self.high_pc = None
-            # DW_AT_low_pc
-            self.low_pc = None
-            # DW_AT_stmt_list
-            self.stmt_list = None
-            self.accessibility = None
-            # DW_AT_artificial: 同じソース上で宣言されているかどうか？
-            self.artificial = None
-
-    class var_info:
-        def __init__(self) -> None:
-            self.name = None
-            self.type = None
-            self.addr = None
-            self.loclistptr = None
-            self.decl_file = utilDwarf.cu_info.file_entry()
-            self.decl_line = None
-            self.decl_column = None
-            self.not_declaration = None  # declarationなし. 不完全型等
-            self.extern = None  # 外部結合, extern宣言
-            self.external_file = None  # ファイル外定義(cファイル以外、hファイル等で定義)
-            self.const_value = None
-            self.sibling_addr = None
-
-    class func_info:
-        def __init__(self) -> None:
-            self.name = None
-            self.return_type = None
-            self.addr = None
-            self.params = []
-            # 関数フレームベースアドレス
-            self.frame_base_addr = None
-            #
-            self.decl_file = None
-            self.decl_line = None
-            self.decl_column = None
-            self.accessibility = None
-            # DW_AT_high_pc
-            self.high_pc = None
-            # DW_AT_low_pc
-            self.low_pc = None
-            # DW_AT_declaration
-            self.declaration = None
-            # DW_AT_external: 外部結合
-            self.external = None
-
-    class type_info:
-        class TAG(enum.Flag):
-            none = enum.auto()
-            base = enum.auto()  # primitive type
-            array = enum.auto()  # array
-            struct = enum.auto()  # struct
-            union = enum.auto()  # union
-            func = enum.auto()  # function type
-            parameter = enum.auto()  # parameter
-            typedef = enum.auto()  # typedef
-            const = enum.auto()  # const
-            volatile = enum.auto()  # volatile
-            pointer = enum.auto()  # pointer
-            restrict = enum.auto()  # restrict
-            enum = enum.auto()  # enumeration type
-
-            func_ptr = func | pointer  # function pointer
-
-        def __init__(self) -> None:
-            self.tag = utilDwarf.type_info.TAG.none
-            self.name = None
-            self.description = None
-            self.byte_size = None
-            self.bit_size = None
-            self.bit_offset = None
-            self.address_class = None
-            self.encoding = None
-            self.member = []
-            self.member_location = None
-            # メンバ関数
-            self.method = []
-            # DW_AT_accessibility: 1:public 3:private
-            self.accessibility = None
-            self.child_type = None
-            self.result_type = None
-            self.range = None
-            self.prototyped = None
-            self.const = None
-            self.pointer = 0  # double pointerで2になる
-            self.restrict = None
-            self.volatile = None
-            self.params = []
-            self.decl_file = utilDwarf.cu_info.file_entry()
-            self.decl_line = None
-            self.decl_column = None
-            # DW_AT_const_value
-            self.const_value = None
-            # DW_AT_sibling: 兄弟DIEへの参照(DIE内)アドレス
-            self.sibling_addr = None
-            # DW_AT_declaration: 宣言のみ、不完全型かどうか
-            self.incomplete = None
-            # 型情報統合データ用メンバ
-            self.sub_type = None  # array: 配列の各要素の型情報
+class Decorder:
 
     def __init__(self, path: pathlib.Path, encoding: str = "utf-8"):
         # 文字コード
@@ -221,15 +22,15 @@ class utilDwarf:
         # データコンテナ初期化
         # DwarfDebugInfoEntryとAddressの対応付けマップ
         # 基本情報をすべてここに集める
-        self._entry_map: Dict[int, utilDwarf.entry] = {}
+        self._entry_map: Dict[int, debug_info.Entry] = {}
         # 以下は必要なスコープでデータ整形したコンテナ
-        self._cu_tbl: List[utilDwarf.cu_info] = []
-        self._active_cu: utilDwarf.cu_info = None
-        self._global_var_tbl: List[utilDwarf.var_info] = []
-        self._func_tbl: List[utilDwarf.func_info] = []
-        self._type_tbl: Dict[int, utilDwarf.type_info] = {}
-        self._addr_cls: Dict[int, List[utilDwarf.type_info]] = {}
-        self._memmap: List[memmap] = []
+        self._cu_tbl: List[debug_info.CUInfo] = []
+        self._active_cu: debug_info.CUInfo = None
+        self._global_var_tbl: List[debug_info.var_info] = []
+        self._func_tbl: List[debug_info.func_info] = []
+        self._type_tbl: Dict[int, debug_info.type_info] = {}
+        self._addr_cls: Dict[int, List[debug_info.type_info]] = {}
+        self._memmap: List[memmap.VarInfo] = []
         # elfファイルを開く
         self._path = path
         self._open()
@@ -254,11 +55,11 @@ class utilDwarf:
             self._dwarf_info = self._elf_file.get_dwarf_info()
             self._arch = self._dwarf_info.config.machine_arch
 
-    def add_entry(self, addr: int, label: str, size: int) -> entry:
-        return utilDwarf.entry(label, size, self._active_cu)
+    def add_entry(self, addr: int, label: str, size: int) -> debug_info.Entry:
+        return debug_info.Entry(label, size, self._active_cu)
         # DwarfAddresMap更新
         if addr not in self._entry_map.keys():
-            self._entry_map[addr] = utilDwarf.entry(label, size, self._active_cu)
+            self._entry_map[addr] = Decorder.entry(label, size, self._active_cu)
         else:
             # Dwarf上のアドレス=オフセットが重複した？
             if self._debug_warning:
@@ -272,7 +73,7 @@ class utilDwarf:
         #
         return self._entry_map[addr]
 
-    def get_entry(self, addr: int) -> entry:
+    def get_entry(self, addr: int) -> debug_info.Entry:
         # DwarfAddres Entry取得
         if addr not in self._entry_map.keys():
             raise Exception(f"entry(offset:{addr}) is not exist!")
@@ -313,7 +114,7 @@ class utilDwarf:
         # file_entry
         for entry in line.header.file_entry:
             entry: elftools_container
-            file = utilDwarf.cu_info.file_entry()
+            file = debug_info.CUInfo.FileEntry()
             # name
             file.filename = entry.name.decode(self._encoding)
             # dir_index
@@ -412,13 +213,13 @@ class utilDwarf:
 
             # type-qualifier
             case "DW_TAG_const_type":
-                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.const)
+                self.analyze_die_TAG_type_qualifier(die, entry, debug_info.TAG.const)
             case "DW_TAG_pointer_type":
-                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.pointer)
+                self.analyze_die_TAG_type_qualifier(die, entry, debug_info.TAG.pointer)
             case "DW_TAG_restrict_type":
-                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.restrict)
+                self.analyze_die_TAG_type_qualifier(die, entry, debug_info.TAG.restrict)
             case "DW_TAG_volatile_type":
-                self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.volatile)
+                self.analyze_die_TAG_type_qualifier(die, entry, debug_info.TAG.volatile)
             case "DW_TAG_packed_type" | "DW_TAG_reference_type" | "DW_TAG_shared_type":
                 self.warn_noimpl(f"DW_TAG={entry.tag}")
 
@@ -433,13 +234,13 @@ class utilDwarf:
     DW_TAG_* 解析
     """
 
-    def analyze_die_TAG_compile_unit(self, cu: CompileUnit, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_compile_unit(self, cu: CompileUnit, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_compile_unit
         tag_entry: DW_TAG_compile_unit entry
         """
         # CompileUnitInfo格納インスタンスを作成
-        self._active_cu = utilDwarf.cu_info()
+        self._active_cu = debug_info.CUInfo()
         self._cu_tbl.append(self._active_cu)
 
         # CompileUnitヘッダ解析
@@ -517,11 +318,11 @@ class utilDwarf:
         # 		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
         # 		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
-    def new_type_info(self, addr: int, tag: type_info.TAG) -> type_info:
+    def new_type_info(self, addr: int, tag: debug_info.TAG) -> debug_info.type_info:
         # addr: Dwarf内でのアドレス
         # 必要ならノード作成
         if addr not in self._type_tbl.keys():
-            self._type_tbl[addr] = utilDwarf.type_info()
+            self._type_tbl[addr] = debug_info.type_info()
         else:
             # print("duplicate!")
             pass
@@ -532,7 +333,7 @@ class utilDwarf:
 
         return type_inf
 
-    def set_type_inf(self, type_inf: type_info, tag_entry: entry, attr: attribute):
+    def set_type_inf(self, type_inf: debug_info.type_info, tag_entry: debug_info.Entry, attr: attribute):
         """
         type_info作成共通処理
         type_infoへ DW_AT_* entry を展開する共通処理。
@@ -608,13 +409,13 @@ class utilDwarf:
         # 解析を実施したらTrueを返す
         return True
 
-    def analyze_die_TAG_base_type(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_base_type(self, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_base_type
         tag_entry: DW_TAG_base_type entry
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.base)
         for at in die.attributes.keys():
             # Attribute Entry生成
             attr = self.DW_attr.decord(die.attributes[at])
@@ -645,13 +446,13 @@ class utilDwarf:
                 # 未処理child
                 self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_unspecified_type(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_unspecified_type(self, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_unspecified_type
         tag_entry: DW_TAG_* entry
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.base)
         for at in die.attributes.keys():
             # Attribute Entry生成
             attr = self.DW_attr.decord(die.attributes[at])
@@ -668,13 +469,13 @@ class utilDwarf:
                 # 未処理child
                 self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_enumeration_type(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_enumeration_type(self, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_enumeration_type
         tag_entry: DW_TAG_* entry
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.enum)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.enum)
         for at in die.attributes.keys():
             # Attribute Entry生成
             attr = self.DW_attr.decord(die.attributes[at])
@@ -703,7 +504,7 @@ class utilDwarf:
         if die.has_children:
             self.analyze_die_TAG_enumeration_type_child(die, type_inf)
 
-    def analyze_die_TAG_enumeration_type_child(self, die: DIE, type_inf: type_info):
+    def analyze_die_TAG_enumeration_type_child(self, die: DIE, type_inf: debug_info.type_info):
         child: DIE
         for child in die.iter_children():
             # entry生成
@@ -718,13 +519,13 @@ class utilDwarf:
                     self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
 
-    def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: entry) -> type_info:
+    def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.type_info:
         """
         DW_TAG_enumerator
         type_infoを作成して返す
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.none)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.none)
 
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -744,19 +545,19 @@ class utilDwarf:
 
         return type_inf
 
-    def analyze_die_TAG_structure_type(self, die: DIE, parent: entry):
+    def analyze_die_TAG_structure_type(self, die: DIE, parent: debug_info.Entry):
         """
         DW_TAG_structure_type
         """
-        self.analyze_die_TAG_structure_union_type_impl(die, parent, utilDwarf.type_info.TAG.struct)
+        self.analyze_die_TAG_structure_union_type_impl(die, parent, debug_info.TAG.struct)
 
-    def analyze_die_TAG_union_type(self, die: DIE, parent: entry):
+    def analyze_die_TAG_union_type(self, die: DIE, parent: debug_info.Entry):
         """
         DW_TAG_union_type
         """
-        self.analyze_die_TAG_structure_union_type_impl(die, parent, utilDwarf.type_info.TAG.union)
+        self.analyze_die_TAG_structure_union_type_impl(die, parent, debug_info.TAG.union)
 
-    def analyze_die_TAG_structure_union_type_impl(self, die: DIE, tag_entry: entry, tag: type_info.TAG):
+    def analyze_die_TAG_structure_union_type_impl(self, die: DIE, tag_entry: debug_info.Entry, tag: debug_info.TAG):
         # type_info取得
         type_inf = self.new_type_info(die.offset, tag)
         # Attr取得
@@ -784,7 +585,7 @@ class utilDwarf:
         if die.has_children:
             self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
 
-    def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: type_info):
+    def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: debug_info.type_info):
         child: DIE
         for child in die.iter_children():
             # entry生成
@@ -800,7 +601,7 @@ class utilDwarf:
                     self.analyze_die_TAG_array_type(child, tag_entry)
                 case "DW_TAG_const_type" | "DW_TAG_pointer_type" | "DW_TAG_restrict_type" | "DW_TAG_volatile_type":
                     # struct/union/class内で使う型の定義
-                    self.analyze_die_TAG_type_qualifier(child, tag_entry, utilDwarf.type_info.TAG.pointer)
+                    self.analyze_die_TAG_type_qualifier(child, tag_entry, debug_info.TAG.pointer)
                 case "DW_TAG_subprogram":
                     f_inf = self.analyze_die_TAG_subprogram_impl(child)
                     type_inf.method.append(f_inf)
@@ -809,12 +610,12 @@ class utilDwarf:
                     # 未処理child
                     self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_member(self, die: DIE, tag_entry: entry) -> type_info:
+    def analyze_die_TAG_member(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.type_info:
         """
         DW_TAG_member
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.none)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.none)
 
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -838,12 +639,12 @@ class utilDwarf:
                 self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
         return type_inf
 
-    def analyze_die_TAG_array_type(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_array_type(self, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_array_type
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.array)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.array)
         # Attr check
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -902,9 +703,9 @@ class utilDwarf:
                     # 未処理child
                     self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: debug_info.Entry):
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.func)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.func)
         for at in die.attributes.keys():
             # Attribute Entry生成
             attr = self.DW_attr.decord(die.attributes[at])
@@ -926,16 +727,16 @@ class utilDwarf:
                 param_inf = self.analyze_parameter(child)
                 type_inf.params.append(param_inf)
 
-    def analyze_parameter(self, die: DIE) -> type_info:
+    def analyze_parameter(self, die: DIE) -> debug_info.type_info:
         if die.tag == "DW_TAG_formal_parameter":
             return self.analyze_die_TAG_formal_parameter(die)
         elif die.tag == "DW_TAG_unspecified_parameters":
             return None
 
-    def analyze_die_TAG_formal_parameter(self, param: DIE) -> type_info:
+    def analyze_die_TAG_formal_parameter(self, param: DIE) -> debug_info.type_info:
         # type要素追加
-        param_inf = utilDwarf.type_info()
-        param_inf.tag = utilDwarf.type_info.TAG.parameter
+        param_inf = debug_info.type_info()
+        param_inf.tag = debug_info.TAG.parameter
         # 引数情報をtype_infoに格納
         for at in param.attributes.keys():
             # Attribute Entry生成
@@ -950,7 +751,7 @@ class utilDwarf:
         #
         return param_inf
 
-    def analyze_die_TAG_type_qualifier(self, die: DIE, tag_entry: entry, tag: type_info.TAG):
+    def analyze_die_TAG_type_qualifier(self, die: DIE, tag_entry: debug_info.Entry, tag: debug_info.TAG):
         """
         DW_TAG_const_type
         DW_TAG_pointer_type
@@ -980,12 +781,12 @@ class utilDwarf:
                 # 未処理child
                 self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_typedef(self, die: DIE, tag_entry: entry):
+    def analyze_die_TAG_typedef(self, die: DIE, tag_entry: debug_info.Entry):
         """
         DW_TAG_typedef
         """
         # type_info取得
-        type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.typedef)
+        type_inf = self.new_type_info(die.offset, debug_info.TAG.typedef)
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -1012,11 +813,11 @@ class utilDwarf:
                 # 未処理child
                 self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_variable(self, die: DIE, parent: entry):
+    def analyze_die_TAG_variable(self, die: DIE, parent: debug_info.Entry):
         """
         DW_TAG_variable
         """
-        var = utilDwarf.var_info()
+        var = debug_info.var_info()
         # AT解析
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -1096,14 +897,14 @@ class utilDwarf:
         f_inf = self.analyze_die_TAG_subprogram_impl(die)
         if f_inf.external is True:
             # 関数
-            self._func_tbl.append(utilDwarf.func_info())
+            self._func_tbl.append(debug_info.func_info())
             f_inf = self._func_tbl[len(self._func_tbl) - 1]
         else:
             # おそらくすべて重複
             return
 
-    def analyze_die_TAG_subprogram_impl(self, die: DIE) -> func_info:
-        f_inf = utilDwarf.func_info()
+    def analyze_die_TAG_subprogram_impl(self, die: DIE) -> debug_info.func_info:
+        f_inf = debug_info.func_info()
         # AT取得
         call_convention = 1  # デフォルトがDW_CC_normal
         for at in die.attributes.keys():
@@ -1161,7 +962,7 @@ class utilDwarf:
         #
         return f_inf
 
-    def register_address_class(self, t_inf: type_info):
+    def register_address_class(self, t_inf: debug_info.type_info):
         """
         DW_AT_address_class情報を登録する。
         アーキテクチャ特有のaddress_classを取得する手段が無い？ので
@@ -1204,47 +1005,47 @@ class utilDwarf:
         # グローバル変数をすべてチェック
         for var in self._global_var_tbl:
             # 型情報取得
-            t_inf: utilDwarf.type_info
+            t_inf: Decorder.type_info
             t_inf = self.get_type_info(var.type)
             #
             self.make_memmap_impl(var, t_inf)
 
-    def make_memmap_impl(self, var: var_info, t_inf: type_info) -> None:
+    def make_memmap_impl(self, var: debug_info.var_info, t_inf: debug_info.type_info) -> None:
         # typeチェック
         match t_inf.tag:
-            case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+            case tag if (tag & debug_info.TAG.array).value != 0:
                 self.make_memmap_var_array(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+            case tag if (tag & debug_info.TAG.pointer).value != 0:
                 self.make_memmap_var_base(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+            case tag if (tag & debug_info.TAG.func).value != 0:
                 self.make_memmap_var_func(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+            case tag if (tag & debug_info.TAG.struct).value != 0:
                 self.make_memmap_var_struct(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+            case tag if (tag & debug_info.TAG.union).value != 0:
                 self.make_memmap_var_struct(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.enum).value != 0:
+            case tag if (tag & debug_info.TAG.enum).value != 0:
                 self.make_memmap_var_base(var, t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+            case tag if (tag & debug_info.TAG.base).value != 0:
                 self.make_memmap_var_base(var, t_inf)
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var(self, var: var_info, t_inf: type_info) -> memmap.var_type:
+    def make_memmap_var(self, var: debug_info.var_info, t_inf: debug_info.type_info) -> memmap.VarInfo:
         """
         memmap_var作成関数
         アドレス重複チェックも実施する
         """
-        memmap_var: memmap.var_type = None
+        memmap_var: memmap.VarInfo = None
         # 重複チェック
         if var.addr in self._memmap_dup.keys():
             # 重複あり
             base_var = self._memmap_dup[var.addr]
-            memmap_var = memmap.var_type()
+            memmap_var = memmap.VarInfo()
             base_var.external.append(memmap_var)
         else:
             # 重複無し
             # 変数情報作成
-            memmap_var = memmap.var_type()
+            memmap_var = memmap.VarInfo()
             self._memmap_dup[var.addr] = memmap_var
             # 変数情報登録
             self._memmap.append(memmap_var)
@@ -1263,20 +1064,20 @@ class utilDwarf:
         #
         return memmap_var
 
-    def make_memmap_var_base(self, var: var_info, t_inf: type_info):
+    def make_memmap_var_base(self, var: debug_info.var_info, t_inf: debug_info.type_info):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
-        memmap_var.tag = memmap.var_type.TAG.base  # 変数タイプタグ
+        memmap_var.tag = debug_info.TAG.base  # 変数タイプタグ
 
-    def make_memmap_var_func(self, var: var_info, t_inf: type_info):
+    def make_memmap_var_func(self, var: debug_info.var_info, t_inf: debug_info.type_info):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
-        memmap_var.tag = memmap.var_type.TAG.func  # 変数タイプタグ
+        memmap_var.tag = debug_info.TAG.func  # 変数タイプタグ
 
-    def make_memmap_var_array(self, var: var_info, t_inf: type_info):
+    def make_memmap_var_array(self, var: debug_info.var_info, t_inf: debug_info.type_info):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
-        memmap_var.tag = memmap.var_type.TAG.array  # 変数タイプタグ
+        memmap_var.tag = debug_info.TAG.array  # 変数タイプタグ
 
         # 配列の各idxを個別にmemberとして登録
         member_t_inf = t_inf.sub_type
@@ -1284,28 +1085,28 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
 
-    def make_memmap_var_array_each(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+    def make_memmap_var_array_each(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
         # typeチェック
         match mem_inf.tag:
-            case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+            case tag if (tag & debug_info.TAG.array).value != 0:
                 self.make_memmap_var_array_each_array(parent, mem_inf, idx)
-            case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+            case tag if (tag & debug_info.TAG.pointer).value != 0:
                 self.make_memmap_var_array_each_base(parent, mem_inf, idx)
-            case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+            case tag if (tag & debug_info.TAG.func).value != 0:
                 self.make_memmap_var_array_each_func(parent, mem_inf, idx)
-            case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+            case tag if (tag & debug_info.TAG.struct).value != 0:
                 self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
-            case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+            case tag if (tag & debug_info.TAG.union).value != 0:
                 self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
-            case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+            case tag if (tag & debug_info.TAG.base).value != 0:
                 self.make_memmap_var_array_each_base(parent, mem_inf, idx)
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var_array_each_base(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+    def make_memmap_var_array_each_base(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
+        memmap_var = memmap.VarInfo()
         memmap_var.tag = parent.tag
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
@@ -1317,10 +1118,10 @@ class utilDwarf:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_array_each_func(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+    def make_memmap_var_array_each_func(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
+        memmap_var = memmap.VarInfo()
         memmap_var.tag = parent.tag
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
@@ -1332,10 +1133,10 @@ class utilDwarf:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_array_each_array(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+    def make_memmap_var_array_each_array(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
+        memmap_var = memmap.VarInfo()
         memmap_var.tag = parent.tag
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
@@ -1353,10 +1154,10 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, mem_inf, child_idx)
 
-    def make_memmap_var_array_each_struct(self, parent: memmap.var_type, mem_inf: type_info, idx: int):
+    def make_memmap_var_array_each_struct(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
+        memmap_var = memmap.VarInfo()
         memmap_var.tag = parent.tag
         memmap_var.address = parent.address + (mem_inf.byte_size * idx)
         memmap_var.name = "[" + str(idx) + "]"
@@ -1373,11 +1174,11 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def make_memmap_var_struct(self, var: var_info, t_inf: type_info):
+    def make_memmap_var_struct(self, var: debug_info.var_info, t_inf: debug_info.type_info):
         # 構造体変数を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
-        memmap_var.tag = memmap.var_type.TAG.struct  # 変数タイプタグ
+        memmap_var = memmap.VarInfo()
+        memmap_var.tag = debug_info.TAG.struct  # 変数タイプタグ
         memmap_var.address = var.addr  # 配置アドレス
         memmap_var.name = var.name  # 変数名
         memmap_var.decl_file = var.decl_file
@@ -1395,30 +1196,30 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def make_memmap_var_member(self, parent: memmap.var_type, mem_inf: type_info):
+    def make_memmap_var_member(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info):
         # member型情報を取得
         mem_t_inf = self.get_type_info(mem_inf.child_type)
         # typeチェック
         match mem_t_inf.tag:
-            case tag if (tag & utilDwarf.type_info.TAG.array).value != 0:
+            case tag if (tag & debug_info.TAG.array).value != 0:
                 self.make_memmap_var_member_array(parent, mem_inf, mem_t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.pointer).value != 0:
+            case tag if (tag & debug_info.TAG.pointer).value != 0:
                 self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.func).value != 0:
+            case tag if (tag & debug_info.TAG.func).value != 0:
                 self.make_memmap_var_member_func(parent, mem_inf, mem_t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.struct).value != 0:
+            case tag if (tag & debug_info.TAG.struct).value != 0:
                 self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.union).value != 0:
+            case tag if (tag & debug_info.TAG.union).value != 0:
                 self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
-            case tag if (tag & utilDwarf.type_info.TAG.base).value != 0:
+            case tag if (tag & debug_info.TAG.base).value != 0:
                 self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var_member_base(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+    def make_memmap_var_member_base(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
         # 変数情報作成
-        memmap_var = memmap.var_type()
-        memmap_var.tag = memmap.var_type.TAG.base  # 変数タイプタグ
+        memmap_var = memmap.VarInfo()
+        memmap_var.tag = debug_info.TAG.base  # 変数タイプタグ
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
@@ -1435,10 +1236,10 @@ class utilDwarf:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_member_func(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+    def make_memmap_var_member_func(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
         # 変数情報作成
-        memmap_var = memmap.var_type()
-        memmap_var.tag = memmap.var_type.TAG.func  # 変数タイプタグ
+        memmap_var = memmap.VarInfo()
+        memmap_var.tag = debug_info.TAG.func  # 変数タイプタグ
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
@@ -1451,10 +1252,10 @@ class utilDwarf:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_member_array(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+    def make_memmap_var_member_array(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
         # 変数情報作成
-        memmap_var = memmap.var_type()
-        memmap_var.tag = memmap.var_type.TAG.array  # 変数タイプタグ
+        memmap_var = memmap.VarInfo()
+        memmap_var.tag = debug_info.TAG.array  # 変数タイプタグ
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
@@ -1474,10 +1275,10 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
 
-    def make_memmap_var_member_struct(self, parent: memmap.var_type, member_inf: type_info, t_inf: type_info):
+    def make_memmap_var_member_struct(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
         # 構造体変数を登録
         # 変数情報作成
-        memmap_var = memmap.var_type()
+        memmap_var = memmap.VarInfo()
         memmap_var.address = parent.address + member_inf.member_location  # アドレス
         memmap_var.address_offset = member_inf.member_location  # アドレスオフセット
         memmap_var.name = member_inf.name  # メンバ名
@@ -1496,20 +1297,20 @@ class utilDwarf:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def get_type_info(self, type_id: int) -> type_info:
+    def get_type_info(self, type_id: int) -> debug_info.type_info:
         # typedef
-        TAG = utilDwarf.type_info.TAG
+        TAG = debug_info.TAG
         # type 取得
         if type_id not in self._type_tbl.keys():
             # ありえないはず
             raise Exception("undetected type appeared.")
         # 型情報がツリーになっているので順に辿って結合していくことで1つの型情報とする
-        type_inf = utilDwarf.type_info()
+        type_inf = debug_info.type_info()
         next_type_id = type_id
         while next_type_id is not None:
             # child情報を結合していく
             child_type = self._type_tbl[next_type_id]
-            if child_type.tag == utilDwarf.type_info.TAG.base:
+            if child_type.tag == debug_info.TAG.base:
                 # name 上書き
                 type_inf.name = self.get_type_info_select_overwrite(type_inf.name, child_type.name)
                 # encoding 上書き
@@ -1519,7 +1320,7 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.func:
+            elif child_type.tag == debug_info.TAG.func:
                 # name 選択
                 type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
                 # byte_size 選択
@@ -1530,7 +1331,7 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.typedef:
+            elif child_type.tag == debug_info.TAG.typedef:
                 # name 選択
                 type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
 
@@ -1547,7 +1348,7 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.array:
+            elif child_type.tag == debug_info.TAG.array:
                 # name 選択
                 type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
                 # range 上書き
@@ -1555,12 +1356,12 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.const:
+            elif child_type.tag == debug_info.TAG.const:
                 type_inf.const = True
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.pointer:
+            elif child_type.tag == debug_info.TAG.pointer:
                 # address_class 上書き
                 type_inf.address_class = self.get_type_info_select(type_inf.address_class, child_type.address_class)
                 # byte_size 上書き
@@ -1569,18 +1370,18 @@ class utilDwarf:
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.restrict:
+            elif child_type.tag == debug_info.TAG.restrict:
                 type_inf.restrict = True
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
-            elif child_type.tag == utilDwarf.type_info.TAG.volatile:
+            elif child_type.tag == debug_info.TAG.volatile:
                 type_inf.volatile = True
 
                 # tagマージ
                 type_inf.tag |= child_type.tag
 
-            elif child_type.tag == utilDwarf.type_info.TAG.enum:
+            elif child_type.tag == debug_info.TAG.enum:
                 # name 選択
                 type_inf.name = self.get_type_info_select(type_inf.name, child_type.name)
                 # byte_size 選択
@@ -1595,7 +1396,7 @@ class utilDwarf:
             next_type_id = child_type.child_type
         # tagがNoneのとき、void型と推測
         if type_inf.tag == 0:
-            type_inf.tag = utilDwarf.type_info.TAG.base
+            type_inf.tag = debug_info.TAG.base
         if type_inf.name is None:
             type_inf.name = "void"
             # void型でbyte_size未指定の場合はvoid*と推測
@@ -1604,17 +1405,17 @@ class utilDwarf:
         # byte_sizeチェック
         if type_inf.byte_size is None:
             # サイズ指定されていない場合のケアを入れる
-            if (type_inf.tag & utilDwarf.type_info.TAG.func_ptr).value != 0:
+            if (type_inf.tag & debug_info.TAG.func_ptr).value != 0:
                 # 関数ポインタ
                 type_inf.byte_size = self._active_cu.address_size
             else:
                 raise Exception(f"type:{type_inf.name} is unknown size.")
         # array後処理
-        if (type_inf.tag & utilDwarf.type_info.TAG.array).value != 0:
+        if (type_inf.tag & debug_info.TAG.array).value != 0:
             # array要素の型情報を作成
             # array周りの情報を除去する
             sub_type = copy.copy(type_inf)
-            sub_type.tag = type_inf.tag & ~utilDwarf.type_info.TAG.array
+            sub_type.tag = type_inf.tag & ~debug_info.TAG.array
             sub_type.range = None
             type_inf.sub_type = sub_type
         return type_inf

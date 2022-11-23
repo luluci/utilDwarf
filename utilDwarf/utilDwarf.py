@@ -8,18 +8,12 @@ from elftools.elf.elffile import ELFFile
 from elftools.dwarf.compileunit import CompileUnit
 from elftools.dwarf.die import AttributeValue, DIE
 from elftools.dwarf.lineprogram import LineProgram, LineProgramEntry
-from elftools.dwarf.dwarfinfo import DWARFInfo
-from elftools.dwarf.callframe import RegisterRule, CFARule
 
 # from elftools.common.construct_utils import ULEB128
 from elftools.construct.lib.container import Container as elftools_container
 
 from .memmap import memmap
-from .LEB128 import ULEB128, SLEB128
-from .DWARF_expression import DWARF_expression, DW_OP
-from .DW_FORM import DW_FORM_decorder
-from .DW_AT import DW_AT_decorder, DW_AT
-
+from .DW_AT import DW_AT_decorder, DW_AT, attribute
 
 
 class utilDwarf:
@@ -48,14 +42,6 @@ class utilDwarf:
             self.low_pc = None
             self.high_pc = None
 
-
-    class attribute:
-
-        def __init__(self) -> None:
-            self.tag = None
-            self.value = None
-
-
     class entry:
         """
         Dwarf形式は"Entry"の集合と定義する
@@ -71,14 +57,13 @@ class utilDwarf:
             self.size = size
             self.cu_info: utilDwarf.cu_info = cu
             # DW_AT_*
-            self.at: utilDwarf.attribute = None
+            self.at: attribute = None
 
             self.name = None
             self.compile_dir = None
             # compilerを示す文字列
             self.producer = None
             self.language = None
-
 
             # DW_AT_description
             self.description = None
@@ -270,7 +255,7 @@ class utilDwarf:
             self._arch = self._dwarf_info.config.machine_arch
 
     def add_entry(self, addr: int, label: str, size: int) -> entry:
-        #return utilDwarf.entry(label, size, self._active_cu)
+        return utilDwarf.entry(label, size, self._active_cu)
         # DwarfAddresMap更新
         if addr not in self._entry_map.keys():
             self._entry_map[addr] = utilDwarf.entry(label, size, self._active_cu)
@@ -353,6 +338,10 @@ class utilDwarf:
             file_no = entry.state.file
         """
 
+    def warn_noimpl(self, msg: str):
+        if self._debug_warning:
+            print("not impled: " + msg)
+
     def analyze_die(self, die: DIE):
         # debug comment
         # 		print("DIE tag: " + str(die.tag))
@@ -364,20 +353,19 @@ class utilDwarf:
 
         match entry.tag:
             case "DW_TAG_compile_unit":
+                # 最初に解析済み
                 # self.analyze_die_TAG_compile_unit(die, entry)
                 pass
 
             case "DW_TAG_dwarf_procedure":
-                if self._debug_warning:
-                    print("DW_TAG_dwarf_procedure tag.")
+                self.warn_noimpl(f"DW_TAG={entry.tag}")
 
             # 変数定義
             case "DW_TAG_variable":
                 self.analyze_die_TAG_variable(die, entry)
 
             case "DW_TAG_constant":
-                if self._debug_warning:
-                    print("DW_TAG_constant.")
+                self.warn_noimpl(f"DW_TAG={entry.tag}")
 
             # 関数定義
             case "DW_TAG_subprogram":
@@ -432,16 +420,14 @@ class utilDwarf:
             case "DW_TAG_volatile_type":
                 self.analyze_die_TAG_type_qualifier(die, entry, utilDwarf.type_info.TAG.volatile)
             case "DW_TAG_packed_type" | "DW_TAG_reference_type" | "DW_TAG_shared_type":
-                pass
+                self.warn_noimpl(f"DW_TAG={entry.tag}")
 
             case "DW_TAG_unspecified_type":
-                if self._debug_warning:
-                    print("DW_TAG_unspecified_type tag.")
+                self.warn_noimpl(f"DW_TAG={entry.tag}")
 
             case _:
                 if die.tag is not None:
-                    if self._debug_warning:
-                        print("unimplemented tag: " + die.tag)
+                    self.warn_noimpl(f"DW_TAG={entry.tag}")
 
     """
     DW_TAG_* 解析
@@ -486,11 +472,11 @@ class utilDwarf:
                     tag_entry.compile_dir = attr.value
                     # cu_info
                     self._active_cu.compile_dir = attr.value
-                
+
                 case DW_AT._producer:
                     tag_entry.producer = attr.value
                     self._active_cu.producer = attr.value
-                
+
                 case DW_AT._language:
                     tag_entry.language = attr.value
                     self._active_cu.language = attr.value
@@ -508,8 +494,7 @@ class utilDwarf:
                     self._active_cu.low_pc = attr.value
 
                 case _:
-                    if self._debug_warning:
-                        print("DW_TAG_compile_unit: unknown attribute detected: " + at)
+                    self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
 
         # failsafe: 必要なATが存在しない場合
         # コンパイルディレクトリはカレントディレクトリを見なす
@@ -651,14 +636,14 @@ class utilDwarf:
                 DW_AT_picture_string
                 DW_AT_small
                 """
-                if self._debug_warning:
-                    print("base_type:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
             for child in die.iter_children():
-                if self._debug_warning:
-                    print("base_type: unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_unspecified_type(self, die: DIE, tag_entry: entry):
         """
@@ -674,14 +659,14 @@ class utilDwarf:
             result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """ """
-                if self._debug_warning:
-                    print("unspecified_type:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
             for child in die.iter_children():
-                if self._debug_warning:
-                    print("unspecified_type: unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_enumeration_type(self, die: DIE, tag_entry: entry):
         """
@@ -712,8 +697,8 @@ class utilDwarf:
                 DW_AT_start_scope
                 DW_AT_visibility
                 """
-                if self._debug_warning:
-                    print("enum_type:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             self.analyze_die_TAG_enumeration_type_child(die, type_inf)
@@ -728,6 +713,10 @@ class utilDwarf:
                 case "DW_TAG_enumerator":
                     mem_inf = self.analyze_die_TAG_enumerator(child, tag_entry)
                     type_inf.member.append(mem_inf)
+                case _:
+                    # 未処理child
+                    self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
+
 
     def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: entry) -> type_info:
         """
@@ -744,8 +733,14 @@ class utilDwarf:
             result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """ """
-                if self._debug_warning:
-                    print("enumerator:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # child check
+        if die.has_children:
+            child: DIE
+            for child in die.iter_children():
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
         return type_inf
 
@@ -783,8 +778,8 @@ class utilDwarf:
                 DW_AT_start_scope
                 DW_AT_visibility
                 """
-                if self._debug_warning:
-                    print("struct/union:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child取得
         if die.has_children:
             self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
@@ -811,8 +806,8 @@ class utilDwarf:
                     type_inf.method.append(f_inf)
                 case _:
                     # ありえないパス
-                    if self._debug_warning:
-                        print("struct/union child?: " + child.tag)
+                    # 未処理child
+                    self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_member(self, die: DIE, tag_entry: entry) -> type_info:
         """
@@ -833,14 +828,14 @@ class utilDwarf:
                 DW_AT_mutable
                 DW_AT_visibility
                 """
-                if self._debug_warning:
-                    print("unknown attribute detected: " + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             for child in die.iter_children():
                 child: DIE
-                if self._debug_warning:
-                    print("DW_TAG_member: unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
         return type_inf
 
     def analyze_die_TAG_array_type(self, die: DIE, tag_entry: entry):
@@ -873,8 +868,8 @@ class utilDwarf:
                 DW_AT_start_scope
                 DW_AT_visibility
                 """
-                if self._debug_warning:
-                    print("array:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             for child in die.iter_children():
@@ -902,10 +897,10 @@ class utilDwarf:
                         if type_inf.range is None:
                             type_inf.range = (upper_bound - lower_bound) + 1
 
-                elif child.tag == "DW_TAG_enumeration_type":
-                    if self._debug_warning:
-                        print("DW_TAG_enumeration_type:?")
-
+                # elif child.tag == "DW_TAG_enumeration_type":
+                else:
+                    # 未処理child
+                    self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: entry):
         # type_info取得
@@ -922,8 +917,8 @@ class utilDwarf:
                     result = self.set_type_inf(type_inf, tag_entry, attr)
                     if not result:
                         """ """
-                        if self._debug_warning:
-                            print("subroutine_type:?:" + at)
+                        # 未処理DW_AT_*
+                        self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
@@ -942,12 +937,16 @@ class utilDwarf:
         param_inf = utilDwarf.type_info()
         param_inf.tag = utilDwarf.type_info.TAG.parameter
         # 引数情報をtype_infoに格納
-        for attr in param.attributes.keys():
+        for at in param.attributes.keys():
             # Attribute Entry生成
-            attr = self.DW_attr.decord(param.attributes[attr])
+            attr = self.DW_attr.decord(param.attributes[at])
 
             if attr.tag == DW_AT._type:
                 param_inf.child_type = attr.value
+            else:
+                # 未処理DW_AT_*
+                # self.warn_noimpl(f"{param.tag}: unknown attribute: " + at)
+                pass
         #
         return param_inf
 
@@ -972,14 +971,14 @@ class utilDwarf:
                 DW_AT_associated
                 DW_AT_data_location
                 """
-                if self._debug_warning:
-                    print("unknown attr: " + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
             for child in die.iter_children():
-                if self._debug_warning:
-                    print("unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_typedef(self, die: DIE, tag_entry: entry):
         """
@@ -1004,14 +1003,14 @@ class utilDwarf:
                 DW_AT_start_scope
                 DW_AT_visibility
                 """
-                if self._debug_warning:
-                    print("typedef:?:" + at)
+                # 未処理DW_AT_*
+                self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
             for child in die.iter_children():
-                if self._debug_warning:
-                    print("unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
     def analyze_die_TAG_variable(self, die: DIE, parent: entry):
         """
@@ -1070,14 +1069,14 @@ class utilDwarf:
                     DW_AT_start_scope
                     DW_AT_visibility
                     """
-                    if self._debug_warning:
-                        print("variable:?:" + at)
+                    # 未処理DW_AT_*
+                    self.warn_noimpl(f"{parent.tag}: unknown attribute: " + at)
         # child check
         if die.has_children:
             child: DIE
             for child in die.iter_children():
-                if self._debug_warning:
-                    print("unproc child.")
+                # 未処理child
+                self.warn_noimpl(f"{parent.tag}: unproc child: " + child.tag)
         # 変数登録
         if var.addr is not None:
             # アドレスを持っているとき
@@ -1141,8 +1140,8 @@ class utilDwarf:
                 case DW_AT._return_addr:
                     pass
                 case _:
-                    if self._debug_warning:
-                        print("subprogram:?:" + at)
+                    # 未処理DW_AT_*
+                    self.warn_noimpl(f"{die.tag}: unknown attribute: " + at)
 
         # child check
         if die.has_children:
@@ -1157,8 +1156,8 @@ class utilDwarf:
                 elif child.tag == "DW_TAG_variable":
                     pass
                 else:
-                    if self._debug_warning:
-                        print("unproc child.")
+                    # 未処理child
+                    self.warn_noimpl(f"{die.tag}: unproc child: " + child.tag)
         #
         return f_inf
 
@@ -1194,8 +1193,6 @@ class utilDwarf:
         for key in self._addr_cls.keys():
             for t_inf in self._addr_cls[key]:
                 t_inf.byte_size = address_class[key]
-
-
 
     def make_memmap(self) -> None:
         # address_class推論

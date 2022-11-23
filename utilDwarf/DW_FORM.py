@@ -65,8 +65,8 @@ DW_FORM_map = {
 DW_FORM eval
 """
 
-class DW_FORM_decorder:
 
+class DW_FORM_decorder:
     def __init__(self, encoding: str = "utf-8") -> None:
         # 文字コード
         self._encoding = encoding
@@ -82,7 +82,6 @@ class DW_FORM_decorder:
 
     def set_offset(self, offset: int):
         self.offset = offset
-
 
     def decode(self, attr: AttributeValue):
         if attr.form == "DW_FORM_indirect":
@@ -217,4 +216,3 @@ class DW_FORM_decorder:
 
     def get_dwarf_expr(self):
         return self.dwarf_expr.get()
-

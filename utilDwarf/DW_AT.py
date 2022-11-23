@@ -72,13 +72,12 @@ class DW_AT(enum.Enum):
 
 
 class attribute:
-
     def __init__(self) -> None:
         self.tag: DW_AT = None
         self.value = None
 
-class DW_AT_decorder:
 
+class DW_AT_decorder:
     def __init__(self, encoding: str = "utf-8") -> None:
         #
         self.DW_form = DW_FORM_decorder(encoding)
@@ -91,7 +90,6 @@ class DW_AT_decorder:
 
     def set_offset(self, offset: int):
         self.DW_form.set_offset(offset)
-
 
     def decord(self, attr_val: AttributeValue) -> attribute:
         # AT解析
@@ -121,7 +119,6 @@ class DW_AT_decorder:
                 attr.tag = DW_AT._bit_size
                 attr.value = self.DW_form.decode(attr_val)
 
-
             case "DW_AT_stmt_list":
                 attr.tag = DW_AT._stmt_list
                 attr.value = self.DW_form.decode(attr_val)
@@ -138,21 +135,18 @@ class DW_AT_decorder:
                 attr.tag = DW_AT._language
                 attr.value = self.DW_form.decode(attr_val)
 
-
             case "DW_AT_comp_dir":
                 attr.tag = DW_AT._comp_dir
                 attr.value = self.DW_form.decode(attr_val)
 
             case "DW_AT_const_value":
                 attr.tag = DW_AT._const_value
-                #attr.value = attr_val.value
+                # attr.value = attr_val.value
                 attr.value = self.DW_form.decode(attr_val)
-
 
             case "DW_AT_lower_bound":
                 attr.tag = DW_AT._lower_bound
                 attr.value = self.DW_form.decode(attr_val)
-
 
             case "DW_AT_producer":
                 attr.tag = DW_AT._producer
@@ -162,17 +156,14 @@ class DW_AT_decorder:
                 attr.tag = DW_AT._prototyped
                 attr.value = attr_val.value
 
-
             case "DW_AT_return_addr":
                 attr.tag = DW_AT._return_addr
-                #attr.value = self.DW_form.decode(attr_val)
+                # attr.value = self.DW_form.decode(attr_val)
                 attr.value = self.analyze_die_AT_location(attr_val)
-
 
             case "DW_AT_upper_bound":
                 attr.tag = DW_AT._upper_bound
                 attr.value = self.DW_form.decode(attr_val)
-
 
             case "DW_AT_accessibility":
                 attr.tag = DW_AT._accessibility
@@ -222,8 +213,6 @@ class DW_AT_decorder:
                 attr.tag = DW_AT._frame_base
                 attr.value = self.analyze_die_AT_location(attr_val)
 
-
-
             case "DW_AT_type":
                 attr.tag = DW_AT._type
                 attr.value = self.DW_form.decode(attr_val)
@@ -231,7 +220,6 @@ class DW_AT_decorder:
             case "DW_AT_description":
                 attr.tag = DW_AT._description
                 attr.value = self.DW_form.decode(attr_val)
-
 
             case _:
                 print("unimplemented AT: " + attr_val.name)
@@ -257,6 +245,3 @@ class DW_AT_decorder:
             return value
         else:
             raise Exception("unimplemented AT_localtion form: " + attr.form)
-
-
-

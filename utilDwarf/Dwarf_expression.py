@@ -166,7 +166,7 @@ class DW_OP(enum.Enum):
     reg31 = 0x6F
 
 
-class Dwarf_expression:
+class DWARF_expression:
     def __init__(self) -> None:
         self.DW_OP_map = {
             # 2.5.1.1 Literal Encodings
@@ -203,8 +203,8 @@ class Dwarf_expression:
 
         # DWARF stack
         self.stack = []
-        self.address_size = None
-        self.frame_base_addr = None
+        self.address_size = 0
+        self.frame_base_addr = 0
 
         # init DW_OP_lit_n
         for val, code in enumerate(range(DW_OP.lit0.value, DW_OP.lit31.value + 1)):
@@ -218,7 +218,7 @@ class Dwarf_expression:
         for val, code in enumerate(range(DW_OP.reg0.value, DW_OP.reg31.value + 1)):
             self.DW_OP_map[DW_OP(code)] = self.DW_OP_reg_n(val)
 
-    def init_address_size(self, size: int):
+    def set_address_size(self, size: int):
         self.address_size = size
 
     def set_frame_base(self, addr: int):

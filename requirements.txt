@@ -6,4 +6,4 @@
 #
 
 -i https://pypi.org/simple
-pyelftools==0.27
+pyelftools==0.29

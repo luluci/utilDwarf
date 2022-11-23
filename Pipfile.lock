@@ -1,11 +1,11 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "3ed13726bfb1ca863dad6255aa9c140d7494445e81c6c1ccc7e3d1dcfc287c0e"
+            "sha256": "b9dd9f62a5db978965b717d5c1cd3b7bc8d9fa735acedccc5e307bf30837026f"
         },
         "pipfile-spec": 6,
         "requires": {
-            "python_version": "3.8"
+            "python_version": "3.11"
         },
         "sources": [
             {
@@ -18,11 +18,11 @@
     "default": {
         "pyelftools": {
             "hashes": [
-                "sha256:5609aa6da1123fccfae2e8431a67b4146aa7fad5b3889f808df12b110f230937",
-                "sha256:cde854e662774c5457d688ca41615f6594187ba7067af101232df889a6b7a66b"
+                "sha256:519f38cf412f073b2d7393aa4682b0190fa901f7c3fa0bff2b82d537690c7fc1",
+                "sha256:ec761596aafa16e282a31de188737e5485552469ac63b60cfcccf22263fd24ff"
             ],
             "index": "pypi",
-            "version": "==0.27"
+            "version": "==0.29"
         }
     },
     "develop": {}

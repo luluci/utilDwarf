@@ -16,67 +16,10 @@ from elftools.construct.lib.container import Container as elftools_container
 
 from .memmap import memmap
 from .LEB128 import ULEB128, SLEB128
-from .Dwarf_expression import Dwarf_expression, DW_OP
+from .DWARF_expression import DWARF_expression, DW_OP
+from .DW_FORM import DW_FORM_decorder
+from .DW_AT import DW_AT_decorder, DW_AT
 
-
-"""
-DW_FORM define
-"""
-
-
-class DW_FORM(enum.Enum):
-    addr = 0x01
-    block1 = 0x0A
-    block2 = 0x03
-    block4 = 0x04
-    block = 0x09
-    data1 = 0x0B
-    data2 = 0x05
-    data4 = 0x06
-    data8 = 0x07
-    sdata = 0x0D
-    udata = 0x0F
-    string = 0x08
-    strp = 0x0E
-    flag = 0x0C
-    ref_addr = 0x10
-    ref1 = 0x11
-    ref2 = 0x12
-    ref4 = 0x13
-    ref8 = 0x14
-    ref_udata = 0x15
-    indirect = 0x16
-    sec_offset = 0x17
-    exprloc = 0x18
-    flag_present = 0x19
-    ref_sig8 = 0x20
-
-
-DW_FORM_map = {
-    "DW_FORM_addr": DW_FORM.addr,
-    "DW_FORM_block1": DW_FORM.block1,
-    "DW_FORM_block2": DW_FORM.block2,
-    "DW_FORM_block4": DW_FORM.block4,
-    "DW_FORM_block": DW_FORM.block,
-    "DW_FORM_data1": DW_FORM.data1,
-    "DW_FORM_data2": DW_FORM.data2,
-    "DW_FORM_data4": DW_FORM.data4,
-    "DW_FORM_data8": DW_FORM.data8,
-    "DW_FORM_sdata": DW_FORM.sdata,
-    "DW_FORM_udata": DW_FORM.udata,
-    "DW_FORM_string": DW_FORM.string,
-    "DW_FORM_strp": DW_FORM.strp,
-    "DW_FORM_flag": DW_FORM.flag,
-    "DW_FORM_ref_addr": DW_FORM.ref_addr,
-    "DW_FORM_ref1": DW_FORM.ref1,
-    "DW_FORM_ref2": DW_FORM.ref2,
-    "DW_FORM_ref4": DW_FORM.ref4,
-    "DW_FORM_ref8": DW_FORM.ref8,
-    "DW_FORM_ref_udata": DW_FORM.ref_udata,
-    "DW_FORM_indirect": DW_FORM.indirect,
-    "DW_FORM_exprloc": DW_FORM.exprloc,
-    "DW_FORM_flag_present": DW_FORM.flag_present,
-}
 
 
 class utilDwarf:
@@ -105,6 +48,14 @@ class utilDwarf:
             self.low_pc = None
             self.high_pc = None
 
+
+    class attribute:
+
+        def __init__(self) -> None:
+            self.tag = None
+            self.value = None
+
+
     class entry:
         """
         Dwarf形式は"Entry"の集合と定義する
@@ -119,11 +70,16 @@ class utilDwarf:
             self.tag = tag
             self.size = size
             self.cu_info: utilDwarf.cu_info = cu
+            # DW_AT_*
+            self.at: utilDwarf.attribute = None
 
-            # DW_AT_name
             self.name = None
-            #
             self.compile_dir = None
+            # compilerを示す文字列
+            self.producer = None
+            self.language = None
+
+
             # DW_AT_description
             self.description = None
             # DW_AT_external
@@ -178,10 +134,6 @@ class utilDwarf:
             self.low_pc = None
             # DW_AT_stmt_list
             self.stmt_list = None
-            # DW_AT_language
-            self.language = None
-            # DW_AT_producer: compilerを示す文字列
-            self.producer = None
             self.accessibility = None
             # DW_AT_artificial: 同じソース上で宣言されているかどうか？
             self.artificial = None
@@ -298,8 +250,9 @@ class utilDwarf:
         self._open()
         # debug情報
         self._debug_warning = False
-        # Dwarf expression
-        self.dwarf_expr = Dwarf_expression()
+
+        #
+        self.DW_attr = DW_AT_decorder()
 
     def _open(self) -> None:
         # pathチェック
@@ -317,6 +270,7 @@ class utilDwarf:
             self._arch = self._dwarf_info.config.machine_arch
 
     def add_entry(self, addr: int, label: str, size: int) -> entry:
+        #return utilDwarf.entry(label, size, self._active_cu)
         # DwarfAddresMap更新
         if addr not in self._entry_map.keys():
             self._entry_map[addr] = utilDwarf.entry(label, size, self._active_cu)
@@ -490,104 +444,6 @@ class utilDwarf:
                         print("unimplemented tag: " + die.tag)
 
     """
-    DW_AT_* 解析
-    """
-
-    def analyze_die_AT(self, attr: AttributeValue) -> entry:
-        # entry生成
-        entry = self.add_entry(attr.offset, attr.name, 0)
-        # AT解析
-        match attr.name:
-            case "DW_AT_name":
-                entry.name = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_comp_dir":
-                entry.compile_dir = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_external":
-                entry.external = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_decl_file":
-                entry.decl_file = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_decl_line":
-                entry.decl_line = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_decl_column":
-                entry.decl_line = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_type":
-                entry.type = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_location":
-                self.analyze_die_AT_location(attr, entry)
-
-            case "DW_AT_declaration":
-                entry.declaration = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_const_value":
-                entry.const_value = attr.value
-
-            case "DW_AT_address_class":
-                entry.address_class = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_prototyped":
-                entry.prototyped = attr.value
-
-            case "DW_AT_encoding":
-                entry.encoding = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_byte_size":
-                entry.byte_size = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_data_member_location":
-                entry.data_member_location = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_bit_offset":
-                entry.bit_offset = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_bit_size":
-                entry.bit_size = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_count":
-                entry.count = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_frame_base":
-                entry.frame_base_addr = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_sibling":
-                entry.sibling_addr = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_return_addr":
-                entry.return_addr = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_high_pc":
-                entry.high_pc = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_low_pc":
-                entry.low_pc = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_stmt_list":
-                entry.stmt_list = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_language":
-                entry.language = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_producer":
-                entry.producer = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_accessibility":
-                entry.accessibility = self.analyze_die_AT_FORM(attr)
-
-            case "DW_AT_artificial":
-                entry.artificial = self.analyze_die_AT_FORM(attr)
-
-            case _:
-                print("unimplemented AT: " + attr.name)
-        #
-        return entry
-
-    """
     DW_TAG_* 解析
     """
 
@@ -603,9 +459,10 @@ class utilDwarf:
         # CompileUnitヘッダ解析
         # offset
         self._active_cu.offset = cu.cu_offset
+        self.DW_attr.set_offset(self._active_cu.offset)
         # address size
         self._active_cu.address_size = cu.header["address_size"]
-        self.dwarf_expr.init_address_size(self._active_cu.address_size)
+        self.DW_attr.set_address_size(self._active_cu.address_size)
         #
         self._active_cu.debug_abbrev_offset = cu.header["debug_abbrev_offset"]
         #
@@ -615,42 +472,40 @@ class utilDwarf:
 
         # DW_AT_* 取得
         for at in die.attributes.keys():
-            # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
-
             # Attribute解析
-            match at:
-                case "DW_AT_name":
+            attr = self.DW_attr.decord(die.attributes[at])
+            match attr.tag:
+                case DW_AT._name:
                     # entry
-                    tag_entry.name = entry.name
+                    tag_entry.name = attr.value
                     # cu_info
-                    self._active_cu.filename = entry.name
+                    self._active_cu.filename = attr.value
 
-                case "DW_AT_comp_dir":
+                case DW_AT._comp_dir:
                     # entry
-                    tag_entry.compile_dir = entry.compile_dir
+                    tag_entry.compile_dir = attr.value
                     # cu_info
-                    self._active_cu.compile_dir = entry.compile_dir
+                    self._active_cu.compile_dir = attr.value
                 
-                case "DW_AT_producer":
-                    tag_entry.producer = entry.producer
-                    self._active_cu.producer = entry.producer
+                case DW_AT._producer:
+                    tag_entry.producer = attr.value
+                    self._active_cu.producer = attr.value
                 
-                case "DW_AT_language":
-                    tag_entry.language = entry.language
-                    self._active_cu.language = entry.language
+                case DW_AT._language:
+                    tag_entry.language = attr.value
+                    self._active_cu.language = attr.value
 
-                case "DW_AT_stmt_list":
-                    tag_entry.stmt_list = entry.stmt_list
-                    self._active_cu.stmt_list = entry.stmt_list
+                case DW_AT._stmt_list:
+                    tag_entry.stmt_list = attr.value
+                    self._active_cu.stmt_list = attr.value
 
-                case "DW_AT_high_pc":
-                    tag_entry.high_pc = entry.high_pc
-                    self._active_cu.high_pc = entry.high_pc
+                case DW_AT._high_pc:
+                    tag_entry.high_pc = attr.value
+                    self._active_cu.high_pc = attr.value
 
-                case "DW_AT_low_pc":
-                    tag_entry.low_pc = entry.low_pc
-                    self._active_cu.low_pc = entry.low_pc
+                case DW_AT._low_pc:
+                    tag_entry.low_pc = attr.value
+                    self._active_cu.low_pc = attr.value
 
                 case _:
                     if self._debug_warning:
@@ -692,76 +547,76 @@ class utilDwarf:
 
         return type_inf
 
-    def set_type_inf(self, type_inf: type_info, tag_entry: entry, at_entry: entry):
+    def set_type_inf(self, type_inf: type_info, tag_entry: entry, attr: attribute):
         """
         type_info作成共通処理
         type_infoへ DW_AT_* entry を展開する共通処理。
         個別処理は analyze_die_TAG_* 内で行う。
         DW_TAG_* entry にも展開して情報を集約して保持する。
         """
-        match at_entry.tag:
-            case "DW_AT_name":
-                type_inf.name = at_entry.name
-                tag_entry.name = at_entry.name
-            case "DW_AT_type":
-                type_inf.child_type = at_entry.type
-                tag_entry.type = at_entry.type
-            case "DW_AT_sibling":
-                type_inf.sibling_addr = at_entry.sibling_addr
-                tag_entry.sibling_addr = at_entry.sibling_addr
-            case "DW_AT_const_value":
-                type_inf.const_value = at_entry.const_value
-                tag_entry.const_value = at_entry.const_value
-            case "DW_AT_byte_size":
-                type_inf.byte_size = at_entry.byte_size
-                tag_entry.byte_size = at_entry.byte_size
-            case "DW_AT_address_class":
-                type_inf.address_class = at_entry.address_class
+        match attr.tag:
+            case DW_AT._name:
+                type_inf.name = attr.value
+                tag_entry.name = attr.value
+            case DW_AT._type:
+                type_inf.child_type = attr.value
+                tag_entry.type = attr.value
+            case DW_AT._sibling:
+                type_inf.sibling_addr = attr.value
+                tag_entry.sibling_addr = attr.value
+            case DW_AT._const_value:
+                type_inf.const_value = attr.value
+                tag_entry.const_value = attr.value
+            case DW_AT._byte_size:
+                type_inf.byte_size = attr.value
+                tag_entry.byte_size = attr.value
+            case DW_AT._address_class:
+                type_inf.address_class = attr.value
                 self.register_address_class(type_inf)
-                tag_entry.address_class = at_entry.address_class
-            case "DW_AT_declaration":
-                type_inf.incomplete = at_entry.incomplete
-                tag_entry.incomplete = at_entry.incomplete
+                tag_entry.address_class = attr.value
+            case DW_AT._declaration:
+                type_inf.incomplete = attr.value
+                tag_entry.incomplete = attr.value
 
             # struct/union系
-            case "DW_AT_data_member_location":
-                type_inf.member_location = at_entry.data_member_location
-                tag_entry.data_member_location = at_entry.data_member_location
-            case "DW_AT_bit_offset":
-                type_inf.bit_offset = at_entry.bit_offset
-                tag_entry.bit_offset = at_entry.bit_offset
-            case "DW_AT_bit_size":
-                type_inf.bit_size = at_entry.bit_size
-                tag_entry.bit_size = at_entry.bit_size
-            case "DW_AT_accessibility":
-                type_inf.accessibility = at_entry.accessibility
-                tag_entry.accessibility = at_entry.accessibility
+            case DW_AT._data_member_location:
+                type_inf.member_location = attr.value
+                tag_entry.data_member_location = attr.value
+            case DW_AT._bit_offset:
+                type_inf.bit_offset = attr.value
+                tag_entry.bit_offset = attr.value
+            case DW_AT._bit_size:
+                type_inf.bit_size = attr.value
+                tag_entry.bit_size = attr.value
+            case DW_AT._accessibility:
+                type_inf.accessibility = attr.value
+                tag_entry.accessibility = attr.value
 
             # fuction系
-            case "DW_AT_prototyped":
-                type_inf.prototyped = at_entry.prototyped
-                tag_entry.prototyped = at_entry.prototyped
+            case DW_AT._prototyped:
+                type_inf.prototyped = attr.value
+                tag_entry.prototyped = attr.value
 
-            case "DW_AT_encoding":
-                type_inf.encoding = at_entry.encoding
-                tag_entry.encoding = at_entry.encoding
+            case DW_AT._encoding:
+                type_inf.encoding = attr.value
+                tag_entry.encoding = attr.value
 
-            case "DW_AT_description":
-                type_inf.description = at_entry.description
-                tag_entry.description = at_entry.description
-            case "DW_AT_decl_file":
-                file_no = at_entry.decl_file
+            case DW_AT._description:
+                type_inf.description = attr.value
+                tag_entry.description = attr.value
+            case DW_AT._decl_file:
+                file_no = attr.value
                 type_inf.decl_file = self._active_cu.file_list[file_no]
-                tag_entry.decl_file = at_entry.decl_file
-            case "DW_AT_decl_line":
-                type_inf.decl_line = at_entry.decl_line
-                tag_entry.decl_line = at_entry.decl_line
-            case "DW_AT_decl_column":
-                type_inf.decl_column = at_entry.decl_column
-                tag_entry.decl_column = at_entry.decl_column
-            case "DW_AT_sibling":
-                type_inf.sibling_addr = at_entry.sibling_addr
-                tag_entry.sibling_addr = at_entry.sibling_addr
+                tag_entry.decl_file = attr.value
+            case DW_AT._decl_line:
+                type_inf.decl_line = attr.value
+                tag_entry.decl_line = attr.value
+            case DW_AT._decl_column:
+                type_inf.decl_column = attr.value
+                tag_entry.decl_column = attr.value
+            case DW_AT._sibling:
+                type_inf.sibling_addr = attr.value
+                tag_entry.sibling_addr = attr.value
             case _:
                 # 未実装DW_AT_*のときはFalseを返す
                 return False
@@ -777,9 +632,9 @@ class utilDwarf:
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DW_AT_allocated
@@ -814,9 +669,9 @@ class utilDwarf:
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.base)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """ """
                 if self._debug_warning:
@@ -837,9 +692,9 @@ class utilDwarf:
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.enum)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DW_AT_abstract_origin
@@ -884,9 +739,9 @@ class utilDwarf:
 
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """ """
                 if self._debug_warning:
@@ -913,9 +768,9 @@ class utilDwarf:
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DECL
@@ -968,9 +823,9 @@ class utilDwarf:
 
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DECL
@@ -983,7 +838,9 @@ class utilDwarf:
         # child check
         if die.has_children:
             for child in die.iter_children():
-                pass
+                child: DIE
+                if self._debug_warning:
+                    print("DW_TAG_member: unproc child.")
         return type_inf
 
     def analyze_die_TAG_array_type(self, die: DIE, tag_entry: entry):
@@ -995,9 +852,9 @@ class utilDwarf:
         # Attr check
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DECL
@@ -1021,30 +878,48 @@ class utilDwarf:
         # child check
         if die.has_children:
             for child in die.iter_children():
+                child: DIE
                 if child.tag == "DW_TAG_subrange_type":
+                    #
+                    upper_bound = None
+                    lower_bound = None
                     # Attr check
                     for at in child.attributes.keys():
                         # Attribute Entry生成
-                        at_entry = self.analyze_die_AT(child.attributes[at])
+                        attr = self.DW_attr.decord(child.attributes[at])
+                        #
+                        match attr.tag:
+                            case DW_AT._count:
+                                type_inf.range = attr.value
+                            case DW_AT._upper_bound:
+                                upper_bound = attr.value
+                            case DW_AT._lower_bound:
+                                lower_bound = attr.value
+                            case _:
+                                if self._debug_warning:
+                                    print("array:?:" + at)
+                        #
+                        if type_inf.range is None:
+                            type_inf.range = (upper_bound - lower_bound) + 1
 
-                        if at == "DW_AT_count":
-                            type_inf.range = at_entry.count
                 elif child.tag == "DW_TAG_enumeration_type":
-                    pass
+                    if self._debug_warning:
+                        print("DW_TAG_enumeration_type:?")
+
 
     def analyze_die_TAG_subroutine_type(self, die: DIE, tag_entry: entry):
         # type_info取得
         type_inf = self.new_type_info(die.offset, utilDwarf.type_info.TAG.func)
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            match at_entry.tag:
-                case "DW_AT_type":
-                    type_inf.result_type = at_entry.type
-                    tag_entry.type = at_entry.type
+            match attr.tag:
+                case DW_AT._type:
+                    type_inf.result_type = attr.value
+                    tag_entry.type = attr.value
                 case _:
-                    result = self.set_type_inf(type_inf, tag_entry, at_entry)
+                    result = self.set_type_inf(type_inf, tag_entry, attr)
                     if not result:
                         """ """
                         if self._debug_warning:
@@ -1069,10 +944,10 @@ class utilDwarf:
         # 引数情報をtype_infoに格納
         for attr in param.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(param.attributes[attr])
+            attr = self.DW_attr.decord(param.attributes[attr])
 
-            if attr == "DW_AT_type":
-                param_inf.child_type = entry.type
+            if attr.tag == DW_AT._type:
+                param_inf.child_type = attr.value
         #
         return param_inf
 
@@ -1088,9 +963,9 @@ class utilDwarf:
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DW_AT_allocated
@@ -1115,9 +990,9 @@ class utilDwarf:
         # 情報取得
         for at in die.attributes.keys():
             # Attribute Entry生成
-            at_entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
             # type_info更新
-            result = self.set_type_inf(type_inf, tag_entry, at_entry)
+            result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
                 DECL
@@ -1146,58 +1021,57 @@ class utilDwarf:
         # AT解析
         for at in die.attributes.keys():
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
 
-            if at == "DW_AT_external":
-                parent.external = entry.external
-                var.extern = entry.external
-            elif at == "DW_AT_name":
-                parent.name = entry.name
-                var.name = entry.name
-            elif at == "DW_AT_decl_file":
-                parent.decl_file = entry.decl_file
-                # ファイル情報取得
-                var.decl_file = self._active_cu.file_list[entry.decl_file]
-                # ファイルが現在解析中のものでない
-                if entry.decl_file != 1:
-                    var.external_file = True
-            elif at == "DW_AT_decl_line":
-                parent.decl_line = entry.decl_line
-                var.decl_line = entry.decl_line
-            elif at == "DW_AT_decl_column":
-                var.decl_column = entry.decl_column
-                parent.decl_column = entry.decl_column
-            elif at == "DW_AT_type":
-                parent.type = entry.type
-                var.type = entry.type
-            elif at == "DW_AT_location":
-                parent.location = entry.location
-                parent.loclistptr = entry.loclistptr
-                var.addr = entry.location
-                var.loclistptr = entry.loclistptr
-            elif at == "DW_AT_declaration":
-                parent.declaration = entry.declaration
-                var.not_declaration = entry.declaration
-            elif at == "DW_AT_const_value":
-                parent.const_value = entry.const_value
-                var.const_value = entry.const_value
-            elif at == "DW_AT_sibling":
-                parent.sibling_addr = entry.sibling_addr
-                var.sibling_addr = entry.sibling_addr
-            else:
-                """
-                DECL
-                DW_AT_abstract_origin
-                DW_AT_accessibility
-                DW_AT_description
-                DW_AT_endianity
-                DW_AT_segment
-                DW_AT_specification
-                DW_AT_start_scope
-                DW_AT_visibility
-                """
-                if self._debug_warning:
-                    print("variable:?:" + at)
+            match attr.tag:
+                case DW_AT._external:
+                    parent.external = attr.value
+                    var.extern = attr.value
+                case DW_AT._name:
+                    parent.name = attr.value
+                    var.name = attr.value
+                case DW_AT._decl_file:
+                    parent.decl_file = attr.value
+                    # ファイル情報取得
+                    var.decl_file = self._active_cu.file_list[attr.value]
+                    # ファイルが現在解析中のものでない
+                    if attr.value != 1:
+                        var.external_file = True
+                case DW_AT._decl_line:
+                    parent.decl_line = attr.value
+                    var.decl_line = attr.value
+                case DW_AT._decl_column:
+                    parent.decl_column = attr.value
+                    var.decl_column = attr.value
+                case DW_AT._type:
+                    parent.type = attr.value
+                    var.type = attr.value
+                case DW_AT._location:
+                    parent.location = attr.value
+                    var.addr = attr.value
+                case DW_AT._declaration:
+                    parent.declaration = attr.value
+                    var.not_declaration = attr.value
+                case DW_AT._const_value:
+                    parent.const_value = attr.value
+                    var.const_value = attr.value
+                case DW_AT._sibling:
+                    parent.sibling_addr = attr.value
+                    var.sibling_addr = attr.value
+                case _:
+                    """
+                    DECL
+                    DW_AT_abstract_origin
+                    DW_AT_accessibility
+                    DW_AT_description
+                    DW_AT_endianity
+                    DW_AT_segment
+                    DW_AT_specification
+                    DW_AT_start_scope
+                    DW_AT_visibility
+                    """
+                    if self._debug_warning:
+                        print("variable:?:" + at)
         # child check
         if die.has_children:
             child: DIE
@@ -1219,22 +1093,6 @@ class utilDwarf:
     # 		print("    type  : " + str(var_ref.type))
     # 		print("    loca  : " + str(var_ref.addr))
 
-    def analyze_die_AT_location(self, attr: AttributeValue, entry: entry):
-        """
-        DW_AT_location
-        """
-        # 2.6 Location Descriptions
-        value = self.analyze_die_AT_FORM(attr)
-        if attr.form.startswith("DW_FORM_block"):
-            # Simple location descriptions
-            # DW_FORM_block1, DW_FORM_block2, DW_FORM_block4, DW_FORM_block
-            entry.location = value
-        elif attr.form in ("DW_FORM_data4", "DW_FORM_data8", "DW_FORM_exprloc"):
-            # Location lists
-            entry.loclistptr = value
-        else:
-            raise Exception("unimplemented AT_localtion form: " + attr.form)
-
     def analyze_die_TAG_subprogram(self, die: DIE):
         f_inf = self.analyze_die_TAG_subprogram_impl(die)
         if f_inf.external is True:
@@ -1250,41 +1108,42 @@ class utilDwarf:
         # AT取得
         call_convention = 1  # デフォルトがDW_CC_normal
         for at in die.attributes.keys():
-            attr: AttributeValue = die.attributes[at]
             # Attribute Entry生成
-            entry = self.analyze_die_AT(die.attributes[at])
+            attr = self.DW_attr.decord(die.attributes[at])
 
-            if at == "DW_AT_external":
-                f_inf.external = entry.external
-            elif at == "DW_AT_name":
-                f_inf.name = entry.name
-            elif at == "DW_AT_type":
-                f_inf.return_type = entry.type
-            elif at == "DW_AT_calling_convention":
-                call_convention = die.attributes[at].value
-            elif at == "DW_AT_decl_file":
-                file_no = entry.decl_file
-                f_inf.decl_file = self._active_cu.file_list[file_no]
-            elif at == "DW_AT_decl_line":
-                f_inf.decl_line = entry.decl_line
-            elif at == "DW_AT_decl_column":
-                f_inf.decl_column = entry.decl_column
-            elif at == "DW_AT_low_pc":
-                f_inf.low_pc = entry.low_pc
-            elif at == "DW_AT_high_pc":
-                f_inf.high_pc = entry.high_pc
-            elif at == "DW_AT_accessibility":
-                f_inf.accessibility = entry.accessibility
-            elif at == "DW_AT_declaration":
-                f_inf.declaration = entry.declaration
-            elif at == "DW_AT_frame_base":
-                f_inf.frame_base_addr = entry.frame_base_addr
-                self.dwarf_expr.set_frame_base(entry.frame_base_addr)
-            elif at == "DW_AT_return_addr":
-                pass
-            else:
-                if self._debug_warning:
-                    print("subprogram:?:" + at)
+            match attr.tag:
+                case DW_AT._external:
+                    f_inf.external = attr.value
+                case DW_AT._name:
+                    f_inf.name = attr.value
+                case DW_AT._type:
+                    f_inf.return_type = attr.value
+                case DW_AT._calling_convention:
+                    call_convention = die.attributes[at].value
+                case DW_AT._decl_file:
+                    file_no = attr.value
+                    f_inf.decl_file = self._active_cu.file_list[file_no]
+                case DW_AT._decl_line:
+                    f_inf.decl_line = attr.value
+                case DW_AT._decl_column:
+                    f_inf.decl_column = attr.value
+                case DW_AT._low_pc:
+                    f_inf.low_pc = attr.value
+                case DW_AT._high_pc:
+                    f_inf.high_pc = attr.value
+                case DW_AT._accessibility:
+                    f_inf.accessibility = attr.value
+                case DW_AT._declaration:
+                    f_inf.declaration = attr.value
+                case DW_AT._frame_base:
+                    f_inf.frame_base_addr = attr.value
+                    self.DW_attr.set_frame_base(attr.value)
+                case DW_AT._return_addr:
+                    pass
+                case _:
+                    if self._debug_warning:
+                        print("subprogram:?:" + at)
+
         # child check
         if die.has_children:
             child: DIE
@@ -1297,146 +1156,11 @@ class utilDwarf:
                     f_inf.params.append(param_inf)
                 elif child.tag == "DW_TAG_variable":
                     pass
+                else:
+                    if self._debug_warning:
+                        print("unproc child.")
         #
         return f_inf
-
-    """
-    DW_FORM eval
-    """
-
-    def analyze_die_AT_FORM(self, attr: AttributeValue):
-        if attr.form == "DW_FORM_indirect":
-            # pyelftoolsでは、DW_FORM_indirectのときには
-            # raw_valueにDW_FORMの値が入っている
-            return self.analyze_die_AT_FORM_impl(attr.raw_value, attr.value)
-        else:
-            return self.analyze_die_AT_FORM_impl(DW_FORM_map[attr.form].value, attr.value)
-
-    def analyze_die_AT_FORM_impl(self, form: int, value: any):
-        match form:
-            case DW_FORM.addr.value:
-                return value
-
-            case DW_FORM.block1.value:
-                # [ length data1 data2 ... ] or [ DWARF expr ]
-                result = None
-                length = 1 + value[0]
-                if len(value) == length:
-                    # length byte と valueの要素数が一致するとき、block1として解釈
-                    result = int.from_bytes(bytearray(value[1:length]), "little")
-                else:
-                    # 上記以外のとき、DWARF expression として解釈
-                    self.analyze_dwarf_expr(value)
-                    result = self.get_dwarf_expr()
-                return result
-
-            case DW_FORM.block2.value:
-                # [ length1 length2 data1 data2 ... ] or [ DWARF expr ]
-                result = None
-                len_size = 2
-                length = int.from_bytes(bytearray(value[0:len_size]), "little") + len_size
-                if len(value) == length:
-                    # length byte と valueの要素数が一致するとき、block2として解釈
-                    result = int.from_bytes(bytearray(value[len_size:length]), "little")
-                else:
-                    # 上記以外のとき、DWARF expression として解釈
-                    self.analyze_dwarf_expr(value)
-                    result = self.get_dwarf_expr()
-                return result
-
-            case DW_FORM.block4.value:
-                # [ length1 length2 length3 length4 data1 data2 ... ] or [ DWARF expr ]
-                result = None
-                len_size = 4
-                length = int.from_bytes(bytearray(value[0:len_size]), "little") + len_size
-                if len(value) == length:
-                    # length byte と valueの要素数が一致するとき、block4として解釈
-                    result = int.from_bytes(bytearray(value[len_size:length]), "little")
-                else:
-                    # 上記以外のとき、DWARF expression として解釈
-                    self.analyze_dwarf_expr(value)
-                    result = self.get_dwarf_expr()
-                return result
-
-            case DW_FORM.block.value:
-                result = None
-                # [ ULEB128を表すバイト列 ] + [ ULEB128で示されたデータ長 ]
-                uleb128 = ULEB128(value)
-                len_size = uleb128.len_byte
-                length = len_size + uleb128.value
-                if len(value) == length:
-                    # length byte と valueの要素数が一致するとき、block4として解釈
-                    result = int.from_bytes(bytearray(value[len_size:length]), "little")
-                else:
-                    # 上記以外のとき、DWARF expression として解釈
-                    self.analyze_dwarf_expr(value)
-                    result = self.get_dwarf_expr()
-                return result
-
-            case DW_FORM.data1.value:
-                return value
-            case DW_FORM.data2.value:
-                return value
-            case DW_FORM.data4.value:
-                return value
-            case DW_FORM.data8.value:
-                return value
-
-            # case DW_FORM.sdata.value:
-            # 	return SLEB128(value).value
-
-            case DW_FORM.udata.value:
-                return ULEB128(value).value
-            case DW_FORM.string.value:
-                return value.decode(self._encoding)
-
-            case DW_FORM.strp.value:
-                # value: .debug_str から対象となる文字列までのoffset
-                # 上記が示す位置から\0までの文字列を返す
-                # elftoolsでは文字列をvalueで渡してくれる
-                return value.decode(self._encoding)
-
-            case DW_FORM.flag.value:
-                return value
-
-            case DW_FORM.ref_addr.value:
-                # .debug_info の先頭からのoffsetを加算する
-                return value
-            case DW_FORM.ref1.value:
-                return self._active_cu.offset + value
-            case DW_FORM.ref2.value:
-                return self._active_cu.offset + value
-            case DW_FORM.ref4.value:
-                return self._active_cu.offset + value
-            case DW_FORM.ref8.value:
-                return self._active_cu.offset + value
-            case DW_FORM.ref_udata.value:
-                # ?合ってる?
-                return self._active_cu.offset + ULEB128(value).value
-
-            # case DW_FORM.indirect.value:
-            # DW_FORM_indirectが再帰することは無い想定
-
-            case DW_FORM.exprloc.value:
-                # value に Dwarf expression が格納されているとみなす
-                self.analyze_dwarf_expr(value)
-                return self.get_dwarf_expr()
-
-            case DW_FORM.flag_present.value:
-                return value
-
-            case _:
-                # 未実装多し
-                raise Exception(f"Unknown DW_FORM detected: {DW_FORM(form)}")
-
-    def analyze_dwarf_expr(self, value):
-        # operation code
-        code = value[0]
-        # expression
-        self.dwarf_expr.exec(DW_OP(code))(value[1:])
-
-    def get_dwarf_expr(self):
-        return self.dwarf_expr.get()
 
     def register_address_class(self, t_inf: type_info):
         """
@@ -1470,6 +1194,8 @@ class utilDwarf:
         for key in self._addr_cls.keys():
             for t_inf in self._addr_cls[key]:
                 t_inf.byte_size = address_class[key]
+
+
 
     def make_memmap(self) -> None:
         # address_class推論

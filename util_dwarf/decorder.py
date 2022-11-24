@@ -999,9 +999,9 @@ class Decorder:
         # address_class推論
         self.analyze_address_class()
         # メモリマップ初期化
-        self._memmap = []
+        self._memmap: List[memmap.VarInfo] = []
         # 重複チェックdict
-        self._memmap_dup = {}
+        self._memmap_dup: Dict[int, memmap.VarInfo] = {}
         # グローバル変数をすべてチェック
         for var in self._global_var_tbl:
             # 型情報取得
@@ -1098,6 +1098,8 @@ class Decorder:
                 self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
             case tag if (tag & debug_info.TAG.union).value != 0:
                 self.make_memmap_var_array_each_struct(parent, mem_inf, idx)
+            case tag if (tag & debug_info.TAG.enum).value != 0:
+                self.make_memmap_var_array_each_base(parent, mem_inf, idx)
             case tag if (tag & debug_info.TAG.base).value != 0:
                 self.make_memmap_var_array_each_base(parent, mem_inf, idx)
             case _:
@@ -1211,6 +1213,8 @@ class Decorder:
                 self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
             case tag if (tag & debug_info.TAG.union).value != 0:
                 self.make_memmap_var_member_struct(parent, mem_inf, mem_t_inf)
+            case tag if (tag & debug_info.TAG.enum).value != 0:
+                self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
             case tag if (tag & debug_info.TAG.base).value != 0:
                 self.make_memmap_var_member_base(parent, mem_inf, mem_t_inf)
             case _:

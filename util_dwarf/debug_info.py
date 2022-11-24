@@ -55,7 +55,7 @@ class CUInfo:
         self.high_pc = None
 
 
-class var_info:
+class VarInfo:
     def __init__(self) -> None:
         self.name = None
         self.type = None
@@ -92,7 +92,7 @@ class func_info:
         # DW_AT_external: 外部結合
         self.external = None
 
-class type_info:
+class TypeInfo:
     def __init__(self) -> None:
         self.tag = TAG.none
         self.name = None

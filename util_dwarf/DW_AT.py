@@ -1,8 +1,9 @@
 import enum
+from typing import Tuple
 
 from elftools.dwarf.die import AttributeValue, DIE
 
-from util_dwarf.DW_FORM import DW_FORM_decorder
+from util_dwarf.DW_FORM import DW_FORM_decorder, Class
 
 
 class DW_AT(enum.Enum):
@@ -74,7 +75,8 @@ class DW_AT(enum.Enum):
 class attribute:
     def __init__(self) -> None:
         self.tag: DW_AT = None
-        self.value = None
+        self.cls: Class = None
+        self.value: any = None
 
 
 class DW_AT_decorder:
@@ -97,151 +99,151 @@ class DW_AT_decorder:
         match attr_val.name:
             case "DW_AT_sibling":
                 attr.tag = DW_AT._sibling
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_name":
                 attr.tag = DW_AT._name
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_location":
                 attr.tag = DW_AT._location
-                attr.value = self.analyze_die_AT_location(attr_val)
+                (self.cls, attr.value) = self.decode_address(attr_val)
 
             case "DW_AT_byte_size":
                 attr.tag = DW_AT._byte_size
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_bit_offset":
                 attr.tag = DW_AT._bit_offset
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_bit_size":
                 attr.tag = DW_AT._bit_size
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_stmt_list":
                 attr.tag = DW_AT._stmt_list
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_low_pc":
                 attr.tag = DW_AT._low_pc
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_high_pc":
                 attr.tag = DW_AT._high_pc
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_language":
                 attr.tag = DW_AT._language
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_comp_dir":
                 attr.tag = DW_AT._comp_dir
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_const_value":
                 attr.tag = DW_AT._const_value
                 # attr.value = attr_val.value
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_lower_bound":
                 attr.tag = DW_AT._lower_bound
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_producer":
                 attr.tag = DW_AT._producer
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_prototyped":
                 attr.tag = DW_AT._prototyped
-                attr.value = attr_val.value
+                (self.cls, attr.value) = attr_val.value
 
             case "DW_AT_return_addr":
                 attr.tag = DW_AT._return_addr
                 # attr.value = self.DW_form.decode(attr_val)
-                attr.value = self.analyze_die_AT_location(attr_val)
+                (self.cls, attr.value) = self.decode_address(attr_val)
 
             case "DW_AT_upper_bound":
                 attr.tag = DW_AT._upper_bound
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_accessibility":
                 attr.tag = DW_AT._accessibility
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_address_class":
                 attr.tag = DW_AT._address_class
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_artificial":
                 attr.tag = DW_AT._artificial
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_count":
                 attr.tag = DW_AT._count
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_data_member_location":
                 attr.tag = DW_AT._data_member_location
-                attr.value = self.analyze_die_AT_location(attr_val)
+                (self.cls, attr.value) = self.decode_address(attr_val)
 
             case "DW_AT_decl_column":
                 attr.tag = DW_AT._decl_column
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_decl_file":
                 attr.tag = DW_AT._decl_file
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_decl_line":
                 attr.tag = DW_AT._decl_line
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_declaration":
                 attr.tag = DW_AT._declaration
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_encoding":
                 attr.tag = DW_AT._encoding
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_external":
                 attr.tag = DW_AT._external
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_frame_base":
                 attr.tag = DW_AT._frame_base
-                attr.value = self.analyze_die_AT_location(attr_val)
+                (self.cls, attr.value) = self.decode_address(attr_val)
 
             case "DW_AT_type":
                 attr.tag = DW_AT._type
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case "DW_AT_description":
                 attr.tag = DW_AT._description
-                attr.value = self.DW_form.decode(attr_val)
+                (self.cls, attr.value) = self.DW_form.decode(attr_val)
 
             case _:
                 print("unimplemented AT: " + attr_val.name)
         #
         return attr
 
-    def analyze_die_AT_location(self, attr: AttributeValue):
+    def decode_address(self, attr: AttributeValue) -> Tuple[Class, any]:
         """
         DW_AT_location
         """
         # 2.6 Location Descriptions
-        value = self.DW_form.decode(attr)
+        (cls, value) = self.DW_form.decode(attr)
         if attr.form.startswith("DW_FORM_block"):
             # Simple location descriptions
             # DW_FORM_block1, DW_FORM_block2, DW_FORM_block4, DW_FORM_block
             # valueをそのまま返す
-            return value
+            return (Class.exprloc, value)
         elif attr.form in ("DW_FORM_data4", "DW_FORM_data8", "DW_FORM_exprloc"):
             # Location lists
             # .debug_locへの参照を解決して値を返す
             # 未対応
-            print("unimplemented AT_localtion:loclistptr:" + str(value))
-            return value
+            # print("unimplemented AT_localtion:loclistptr:" + str(value))
+            return (Class.loclistptr, value)
         else:
             raise Exception("unimplemented AT_localtion form: " + attr.form)

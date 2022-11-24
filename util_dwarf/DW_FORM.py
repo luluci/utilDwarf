@@ -1,4 +1,5 @@
 import enum
+from typing import Tuple
 
 from elftools.dwarf.die import AttributeValue, DIE
 
@@ -60,11 +61,9 @@ DW_FORM_map = {
     "DW_FORM_flag_present": DW_FORM.flag_present,
 }
 
-
-"""
-DW_FORM eval
-"""
-
+class Class(enum.Enum):
+    exprloc = enum.auto()
+    loclistptr = enum.auto()
 
 class DW_FORM_decorder:
     def __init__(self, encoding: str = "utf-8") -> None:
@@ -83,7 +82,7 @@ class DW_FORM_decorder:
     def set_offset(self, offset: int):
         self.offset = offset
 
-    def decode(self, attr: AttributeValue):
+    def decode(self, attr: AttributeValue) -> Tuple[Class, any]:
         if attr.form == "DW_FORM_indirect":
             # pyelftoolsでは、DW_FORM_indirectのときには
             # raw_valueにDW_FORMの値が入っている
@@ -91,10 +90,10 @@ class DW_FORM_decorder:
         else:
             return self.decode_impl(DW_FORM_map[attr.form].value, attr.value)
 
-    def decode_impl(self, form: int, value: any):
+    def decode_impl(self, form: int, value: any) -> Tuple[Class, any]:
         match form:
             case DW_FORM.addr.value:
-                return value
+                return (None, value)
 
             case DW_FORM.block1.value:
                 # [ length data1 data2 ... ] or [ DWARF expr ]
@@ -107,7 +106,7 @@ class DW_FORM_decorder:
                     # 上記以外のとき、DWARF expression として解釈
                     self.analyze_dwarf_expr(value)
                     result = self.get_dwarf_expr()
-                return result
+                return (None, result)
 
             case DW_FORM.block2.value:
                 # [ length1 length2 data1 data2 ... ] or [ DWARF expr ]
@@ -121,7 +120,7 @@ class DW_FORM_decorder:
                     # 上記以外のとき、DWARF expression として解釈
                     self.analyze_dwarf_expr(value)
                     result = self.get_dwarf_expr()
-                return result
+                return (None, result)
 
             case DW_FORM.block4.value:
                 # [ length1 length2 length3 length4 data1 data2 ... ] or [ DWARF expr ]
@@ -135,7 +134,7 @@ class DW_FORM_decorder:
                     # 上記以外のとき、DWARF expression として解釈
                     self.analyze_dwarf_expr(value)
                     result = self.get_dwarf_expr()
-                return result
+                return (None, result)
 
             case DW_FORM.block.value:
                 result = None
@@ -150,48 +149,57 @@ class DW_FORM_decorder:
                     # 上記以外のとき、DWARF expression として解釈
                     self.analyze_dwarf_expr(value)
                     result = self.get_dwarf_expr()
-                return result
+                return (None, result)
 
             case DW_FORM.data1.value:
-                return value
+                return (None, value)
             case DW_FORM.data2.value:
-                return value
+                return (None, value)
             case DW_FORM.data4.value:
-                return value
+                return (None, value)
             case DW_FORM.data8.value:
-                return value
+                return (None, value)
 
             case DW_FORM.sdata.value:
-                return SLEB128(value).value
+                result = SLEB128(value).value
+                return (None, result)
 
             case DW_FORM.udata.value:
-                return ULEB128(value).value
+                result = ULEB128(value).value
+                return (None, result)
             case DW_FORM.string.value:
-                return value.decode(self._encoding)
+                result = value.decode(self._encoding)
+                return (None, result)
 
             case DW_FORM.strp.value:
                 # value: .debug_str から対象となる文字列までのoffset
                 # 上記が示す位置から\0までの文字列を返す
                 # elftoolsでは文字列をvalueで渡してくれる
-                return value.decode(self._encoding)
+                result = value.decode(self._encoding)
+                return (None, result)
 
             case DW_FORM.flag.value:
-                return value
+                return (None, value)
 
             case DW_FORM.ref_addr.value:
                 # .debug_info の先頭からのoffsetを加算する
-                return value
+                return (None, value)
             case DW_FORM.ref1.value:
-                return self.offset + value
+                result = self.offset + value
+                return (None, result)
             case DW_FORM.ref2.value:
-                return self.offset + value
+                result = self.offset + value
+                return (None, result)
             case DW_FORM.ref4.value:
-                return self.offset + value
+                result = self.offset + value
+                return (None, result)
             case DW_FORM.ref8.value:
-                return self.offset + value
+                result = self.offset + value
+                return (None, result)
             case DW_FORM.ref_udata.value:
                 # ?合ってる?
-                return self.offset + ULEB128(value).value
+                result = self.offset + ULEB128(value).value
+                return (None, result)
 
             # case DW_FORM.indirect.value:
             # DW_FORM_indirectが再帰することは無い想定
@@ -199,10 +207,11 @@ class DW_FORM_decorder:
             case DW_FORM.exprloc.value:
                 # value に Dwarf expression が格納されているとみなす
                 self.analyze_dwarf_expr(value)
-                return self.get_dwarf_expr()
+                result = self.get_dwarf_expr()
+                return (None, result)
 
             case DW_FORM.flag_present.value:
-                return value
+                return (None, value)
 
             case _:
                 # 未実装多し

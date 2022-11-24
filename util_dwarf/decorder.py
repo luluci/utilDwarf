@@ -26,10 +26,10 @@ class Decorder:
         # 以下は必要なスコープでデータ整形したコンテナ
         self._cu_tbl: List[debug_info.CUInfo] = []
         self._active_cu: debug_info.CUInfo = None
-        self._global_var_tbl: List[debug_info.var_info] = []
+        self._global_var_tbl: List[debug_info.VarInfo] = []
         self._func_tbl: List[debug_info.func_info] = []
-        self._type_tbl: Dict[int, debug_info.type_info] = {}
-        self._addr_cls: Dict[int, List[debug_info.type_info]] = {}
+        self._type_tbl: Dict[int, debug_info.TypeInfo] = {}
+        self._addr_cls: Dict[int, List[debug_info.TypeInfo]] = {}
         self._memmap: List[memmap.VarInfo] = []
         # elfファイルを開く
         self._path = path
@@ -38,7 +38,7 @@ class Decorder:
         self._debug_warning = False
 
         #
-        self.DW_attr = DW_AT_decorder()
+        self.DW_attr = DW_AT_decorder(encoding)
 
     def _open(self) -> None:
         # pathチェック
@@ -318,11 +318,11 @@ class Decorder:
         # 		print("    debug_abbrev_offset: " + str(self._curr_cu_info.debug_abbrev_offset))
         # 		print("    unit_length        : " + str(self._curr_cu_info.unit_length))
 
-    def new_type_info(self, addr: int, tag: debug_info.TAG) -> debug_info.type_info:
+    def new_type_info(self, addr: int, tag: debug_info.TAG) -> debug_info.TypeInfo:
         # addr: Dwarf内でのアドレス
         # 必要ならノード作成
         if addr not in self._type_tbl.keys():
-            self._type_tbl[addr] = debug_info.type_info()
+            self._type_tbl[addr] = debug_info.TypeInfo()
         else:
             # print("duplicate!")
             pass
@@ -333,7 +333,7 @@ class Decorder:
 
         return type_inf
 
-    def set_type_inf(self, type_inf: debug_info.type_info, tag_entry: debug_info.Entry, attr: attribute):
+    def set_type_inf(self, type_inf: debug_info.TypeInfo, tag_entry: debug_info.Entry, attr: attribute):
         """
         type_info作成共通処理
         type_infoへ DW_AT_* entry を展開する共通処理。
@@ -504,7 +504,7 @@ class Decorder:
         if die.has_children:
             self.analyze_die_TAG_enumeration_type_child(die, type_inf)
 
-    def analyze_die_TAG_enumeration_type_child(self, die: DIE, type_inf: debug_info.type_info):
+    def analyze_die_TAG_enumeration_type_child(self, die: DIE, type_inf: debug_info.TypeInfo):
         child: DIE
         for child in die.iter_children():
             # entry生成
@@ -519,7 +519,7 @@ class Decorder:
                     self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
 
-    def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.type_info:
+    def analyze_die_TAG_enumerator(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.TypeInfo:
         """
         DW_TAG_enumerator
         type_infoを作成して返す
@@ -585,7 +585,7 @@ class Decorder:
         if die.has_children:
             self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
 
-    def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: debug_info.type_info):
+    def analyze_die_TAG_structure_union_type_impl_child(self, die: DIE, type_inf: debug_info.TypeInfo):
         child: DIE
         for child in die.iter_children():
             # entry生成
@@ -610,7 +610,7 @@ class Decorder:
                     # 未処理child
                     self.warn_noimpl(f"{tag_entry.tag}: unproc child: " + child.tag)
 
-    def analyze_die_TAG_member(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.type_info:
+    def analyze_die_TAG_member(self, die: DIE, tag_entry: debug_info.Entry) -> debug_info.TypeInfo:
         """
         DW_TAG_member
         """
@@ -676,9 +676,9 @@ class Decorder:
             for child in die.iter_children():
                 child: DIE
                 if child.tag == "DW_TAG_subrange_type":
-                    #
-                    upper_bound = None
-                    lower_bound = None
+                    # lower_boundが0であると自明なときは省略されるケースあり
+                    upper_bound = 0
+                    lower_bound = 0
                     # Attr check
                     for at in child.attributes.keys():
                         # Attribute Entry生成
@@ -727,15 +727,15 @@ class Decorder:
                 param_inf = self.analyze_parameter(child)
                 type_inf.params.append(param_inf)
 
-    def analyze_parameter(self, die: DIE) -> debug_info.type_info:
+    def analyze_parameter(self, die: DIE) -> debug_info.TypeInfo:
         if die.tag == "DW_TAG_formal_parameter":
             return self.analyze_die_TAG_formal_parameter(die)
         elif die.tag == "DW_TAG_unspecified_parameters":
             return None
 
-    def analyze_die_TAG_formal_parameter(self, param: DIE) -> debug_info.type_info:
+    def analyze_die_TAG_formal_parameter(self, param: DIE) -> debug_info.TypeInfo:
         # type要素追加
-        param_inf = debug_info.type_info()
+        param_inf = debug_info.TypeInfo()
         param_inf.tag = debug_info.TAG.parameter
         # 引数情報をtype_infoに格納
         for at in param.attributes.keys():
@@ -817,7 +817,7 @@ class Decorder:
         """
         DW_TAG_variable
         """
-        var = debug_info.var_info()
+        var = debug_info.VarInfo()
         # AT解析
         for at in die.attributes.keys():
             # Attribute Entry生成
@@ -879,14 +879,14 @@ class Decorder:
                 # 未処理child
                 self.warn_noimpl(f"{parent.tag}: unproc child: " + child.tag)
         # 変数登録
-        if var.addr is not None:
-            # アドレスを持っているとき
-            # グローバル変数
-            self._global_var_tbl.append(var)
-        else:
+        if var.addr is None or var.name is None or var.type is None:
             # アドレスを持たない
             # ローカル変数, 定数, etc
             pass
+        else:
+            # アドレスを持っているとき
+            # グローバル変数
+            self._global_var_tbl.append(var)
         # debug comment
 
     # 		print("    name  : " + var_ref.name)
@@ -962,7 +962,7 @@ class Decorder:
         #
         return f_inf
 
-    def register_address_class(self, t_inf: debug_info.type_info):
+    def register_address_class(self, t_inf: debug_info.TypeInfo):
         """
         DW_AT_address_class情報を登録する。
         アーキテクチャ特有のaddress_classを取得する手段が無い？ので
@@ -1005,12 +1005,12 @@ class Decorder:
         # グローバル変数をすべてチェック
         for var in self._global_var_tbl:
             # 型情報取得
-            t_inf: Decorder.type_info
+            t_inf: debug_info.TypeInfo
             t_inf = self.get_type_info(var.type)
             #
             self.make_memmap_impl(var, t_inf)
 
-    def make_memmap_impl(self, var: debug_info.var_info, t_inf: debug_info.type_info) -> None:
+    def make_memmap_impl(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo) -> None:
         # typeチェック
         match t_inf.tag:
             case tag if (tag & debug_info.TAG.array).value != 0:
@@ -1030,7 +1030,7 @@ class Decorder:
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var(self, var: debug_info.var_info, t_inf: debug_info.type_info) -> memmap.VarInfo:
+    def make_memmap_var(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo) -> memmap.VarInfo:
         """
         memmap_var作成関数
         アドレス重複チェックも実施する
@@ -1064,17 +1064,17 @@ class Decorder:
         #
         return memmap_var
 
-    def make_memmap_var_base(self, var: debug_info.var_info, t_inf: debug_info.type_info):
+    def make_memmap_var_base(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
         memmap_var.tag = debug_info.TAG.base  # 変数タイプタグ
 
-    def make_memmap_var_func(self, var: debug_info.var_info, t_inf: debug_info.type_info):
+    def make_memmap_var_func(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
         memmap_var.tag = debug_info.TAG.func  # 変数タイプタグ
 
-    def make_memmap_var_array(self, var: debug_info.var_info, t_inf: debug_info.type_info):
+    def make_memmap_var_array(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = self.make_memmap_var(var, t_inf)
         memmap_var.tag = debug_info.TAG.array  # 変数タイプタグ
@@ -1085,7 +1085,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
 
-    def make_memmap_var_array_each(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
+    def make_memmap_var_array_each(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo, idx: int):
         # typeチェック
         match mem_inf.tag:
             case tag if (tag & debug_info.TAG.array).value != 0:
@@ -1103,7 +1103,7 @@ class Decorder:
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var_array_each_base(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
+    def make_memmap_var_array_each_base(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1118,7 +1118,7 @@ class Decorder:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_array_each_func(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
+    def make_memmap_var_array_each_func(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1133,7 +1133,7 @@ class Decorder:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_array_each_array(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
+    def make_memmap_var_array_each_array(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1154,7 +1154,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, mem_inf, child_idx)
 
-    def make_memmap_var_array_each_struct(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info, idx: int):
+    def make_memmap_var_array_each_struct(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo, idx: int):
         # 配列要素[idx]を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1174,7 +1174,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def make_memmap_var_struct(self, var: debug_info.var_info, t_inf: debug_info.type_info):
+    def make_memmap_var_struct(self, var: debug_info.VarInfo, t_inf: debug_info.TypeInfo):
         # 構造体変数を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1196,7 +1196,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def make_memmap_var_member(self, parent: memmap.VarInfo, mem_inf: debug_info.type_info):
+    def make_memmap_var_member(self, parent: memmap.VarInfo, mem_inf: debug_info.TypeInfo):
         # member型情報を取得
         mem_t_inf = self.get_type_info(mem_inf.child_type)
         # typeチェック
@@ -1216,7 +1216,7 @@ class Decorder:
             case _:
                 raise Exception("unknown variable type detected.")
 
-    def make_memmap_var_member_base(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
+    def make_memmap_var_member_base(self, parent: memmap.VarInfo, member_inf: debug_info.TypeInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = memmap.VarInfo()
         memmap_var.tag = debug_info.TAG.base  # 変数タイプタグ
@@ -1236,7 +1236,7 @@ class Decorder:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_member_func(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
+    def make_memmap_var_member_func(self, parent: memmap.VarInfo, member_inf: debug_info.TypeInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = memmap.VarInfo()
         memmap_var.tag = debug_info.TAG.func  # 変数タイプタグ
@@ -1252,7 +1252,7 @@ class Decorder:
         # 変数情報登録
         parent.member.append(memmap_var)
 
-    def make_memmap_var_member_array(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
+    def make_memmap_var_member_array(self, parent: memmap.VarInfo, member_inf: debug_info.TypeInfo, t_inf: debug_info.TypeInfo):
         # 変数情報作成
         memmap_var = memmap.VarInfo()
         memmap_var.tag = debug_info.TAG.array  # 変数タイプタグ
@@ -1275,7 +1275,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_array_each(memmap_var, member_t_inf, idx)
 
-    def make_memmap_var_member_struct(self, parent: memmap.VarInfo, member_inf: debug_info.type_info, t_inf: debug_info.type_info):
+    def make_memmap_var_member_struct(self, parent: memmap.VarInfo, member_inf: debug_info.TypeInfo, t_inf: debug_info.TypeInfo):
         # 構造体変数を登録
         # 変数情報作成
         memmap_var = memmap.VarInfo()
@@ -1297,7 +1297,7 @@ class Decorder:
             # 再帰処理開始
             self.make_memmap_var_member(memmap_var, member_t_inf)
 
-    def get_type_info(self, type_id: int) -> debug_info.type_info:
+    def get_type_info(self, type_id: int) -> debug_info.TypeInfo:
         # typedef
         TAG = debug_info.TAG
         # type 取得
@@ -1305,7 +1305,7 @@ class Decorder:
             # ありえないはず
             raise Exception("undetected type appeared.")
         # 型情報がツリーになっているので順に辿って結合していくことで1つの型情報とする
-        type_inf = debug_info.type_info()
+        type_inf = debug_info.TypeInfo()
         next_type_id = type_id
         while next_type_id is not None:
             # child情報を結合していく

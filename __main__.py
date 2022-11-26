@@ -13,7 +13,8 @@ path = pathlib.Path(r"./test_obj/abs_test_RX.abs")
 dwarf = util_dwarf.Decorder(path, "cp932")
 dwarf._debug_warning = True
 dwarf.analyze()
-dwarf.make_memmap()
+mmap = util_dwarf.memmap.memmap()
+mmap.make(dwarf)
 print("analyze finish.")
 
 
@@ -49,7 +50,7 @@ def dump_memmap(var: util_dwarf.memmap.VarInfo, depth: int = 0):
             dump_memmap(member, depth + 1)
 
 
-dwarf._memmap.sort(key=lambda k: k.address)
+mmap._memmap.sort(key=lambda k: k.address)
 
-for var in dwarf._memmap:
+for var in mmap._memmap:
     dump_memmap(var)

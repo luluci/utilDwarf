@@ -39,13 +39,25 @@ def dump_memmap(var: util_dwarf.memmap.VarInfo, depth: int = 0):
             file = var.decl_file.full_path
         else:
             file = var.decl_file.proj_rel_path
+
+    if var.name == "":
+        pass
+
     # データ出力
-    if var.tag == util_dwarf.debug_info.TAG.array:
+    if (var.tag & util_dwarf.memmap.VarInfo.TAG.array).value != 0:
+        #
         print(f"0x{var.address:08X}\t{tag}\t{var.byte_size}\t{indent}{var.name}[{var.array_size}]\t({file})")
+        # struct/unionのみmember出力
+        if (var.tag & (util_dwarf.memmap.VarInfo.TAG.struct | util_dwarf.memmap.VarInfo.TAG.union)).value != 0:
+            # memberを出力
+            for member in var.member:
+                dump_memmap(member, depth + 1)
+        else:
+            pass
     else:
         print(f"0x{var.address:08X}\t{tag}\t{var.byte_size}\t{indent}{var.name}\t({file})")
-        #
-        member: util_dwarf.debug_info.VarInfo
+        # memberを出力
+        member: util_dwarf.memmap.VarInfo
         for member in var.member:
             dump_memmap(member, depth + 1)
 

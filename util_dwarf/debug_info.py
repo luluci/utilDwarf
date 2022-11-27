@@ -4,7 +4,7 @@ from typing import List
 from util_dwarf.DW_AT import attribute
 
 class TAG(enum.Flag):
-    none = enum.auto()
+    none = 0
     base = enum.auto()  # primitive type
     array = enum.auto()  # array
     struct = enum.auto()  # struct

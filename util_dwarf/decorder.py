@@ -8,7 +8,8 @@ from elftools.dwarf.lineprogram import LineProgram, LineProgramEntry
 from elftools.construct.lib.container import Container as elftools_container
 
 from util_dwarf import debug_info
-from .DW_AT import DW_AT_decorder, DW_AT, attribute
+from util_dwarf.DW_AT import DW_AT_decorder, DW_AT, attribute
+from util_dwarf.DW_FORM import Class
 
 class Decorder:
 
@@ -630,9 +631,10 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
-        # byte/bitでのoffsetが省略されるケースが存在する？
-        if type_inf.member_location is None and type_inf.bit_offset is None:
+        # member_locationが必ず0の状況では省略される？
+        if type_inf.member_location is None:
             type_inf.member_location = 0
+            tag_entry.data_member_location = 0
         # child check
         if die.has_children:
             for child in die.iter_children():
@@ -849,8 +851,14 @@ class Decorder:
                     parent.type = attr.value
                     var.type = attr.value
                 case DW_AT._location:
-                    parent.location = attr.value
-                    var.addr = attr.value
+                    match attr.cls:
+                        case Class.exprloc:
+                            parent.location = attr.value
+                            var.addr = attr.value
+                        case Class.loclistptr:
+                            parent.loclistptr = attr.value
+                            var.loclistptr = attr.value
+                    
                 case DW_AT._declaration:
                     parent.declaration = attr.value
                     var.not_declaration = attr.value

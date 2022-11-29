@@ -393,7 +393,7 @@ class Decorder:
             case DW_AT._decl_file:
                 file_no = attr.value
                 type_inf.decl_file = self._active_cu.file_list[file_no]
-                tag_entry.decl_file = attr.value
+                tag_entry.decl_file = file_no
             case DW_AT._decl_line:
                 type_inf.decl_line = attr.value
                 tag_entry.decl_line = attr.value
@@ -408,6 +408,15 @@ class Decorder:
                 return False
         # 解析を実施したらTrueを返す
         return True
+
+    def set_type_inf_omit(self, type_inf: debug_info.TypeInfo, tag_entry: debug_info.Entry):
+        """
+        省略されたDW_AT_*を補完する
+        """
+        # DECL
+        if type_inf.decl_file is None:
+            type_inf.decl_file = self._active_cu.file_list[1]
+            tag_entry.decl_file = 1
 
     def analyze_die_TAG_base_type(self, die: DIE, tag_entry: debug_info.Entry):
         """
@@ -439,6 +448,8 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             child: DIE
@@ -462,6 +473,8 @@ class Decorder:
                 """ """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             child: DIE
@@ -500,6 +513,8 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             self.analyze_die_TAG_enumeration_type_child(die, type_inf)
@@ -536,6 +551,8 @@ class Decorder:
                 """ """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             child: DIE
@@ -569,7 +586,6 @@ class Decorder:
             result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
-                DECL
                 DW_AT_abstract_origin
                 DW_AT_accessibility
                 DW_AT_allocated
@@ -581,6 +597,8 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child取得
         if die.has_children:
             self.analyze_die_TAG_structure_union_type_impl_child(die, type_inf)
@@ -624,13 +642,14 @@ class Decorder:
             result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
-                DECL
                 DW_AT_accessibility
                 DW_AT_mutable
                 DW_AT_visibility
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # member_locationが必ず0の状況では省略される？
         if type_inf.member_location is None:
             type_inf.member_location = 0
@@ -657,7 +676,6 @@ class Decorder:
             result = self.set_type_inf(type_inf, tag_entry, attr)
             if not result:
                 """
-                DECL
                 DW_AT_abstract_origin
                 DW_AT_accessibility
                 DW_AT_allocated
@@ -675,6 +693,8 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             for child in die.iter_children():
@@ -724,6 +744,8 @@ class Decorder:
                         """ """
                         # 未処理DW_AT_*
                         self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             child: DIE
@@ -810,6 +832,8 @@ class Decorder:
                 """
                 # 未処理DW_AT_*
                 self.warn_noimpl(f"{tag_entry.tag}: unknown attribute: " + at)
+        # omit DW_AT check
+        self.set_type_inf_omit(type_inf, tag_entry)
         # child check
         if die.has_children:
             child: DIE
@@ -882,6 +906,12 @@ class Decorder:
                     """
                     # 未処理DW_AT_*
                     self.warn_noimpl(f"{parent.tag}: unknown attribute: " + at)
+        # 省略DW_AT_*チェック
+        if var.decl_file is None:
+            # DW_AT_decl_file
+            # CompileUnitのファイルが対象の場合省略されることがある？
+            parent.decl_file = 1
+            var.decl_file = self._active_cu.file_list[1]
         # child check
         if die.has_children:
             child: DIE
@@ -954,6 +984,10 @@ class Decorder:
                     # 未処理DW_AT_*
                     self.warn_noimpl(f"{die.tag}: unknown attribute: " + at)
 
+        # omit DW_AT_* check
+        if f_inf.decl_file is None:
+            # DW_AT_decl_file
+            f_inf.decl_file = self._active_cu.file_list[1]
         # child check
         if die.has_children:
             child: DIE

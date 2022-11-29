@@ -61,7 +61,7 @@ class VarInfo:
         self.type = None
         self.addr = None
         self.loclistptr = None
-        self.decl_file = CUInfo.FileEntry()
+        self.decl_file: CUInfo.FileEntry = None
         self.decl_line = None
         self.decl_column = None
         self.not_declaration = None  # declarationなし. 不完全型等

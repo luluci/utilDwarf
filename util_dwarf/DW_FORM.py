@@ -57,6 +57,7 @@ DW_FORM_map = {
     "DW_FORM_ref8": DW_FORM.ref8,
     "DW_FORM_ref_udata": DW_FORM.ref_udata,
     "DW_FORM_indirect": DW_FORM.indirect,
+    "DW_FORM_sec_offset": DW_FORM.sec_offset,
     "DW_FORM_exprloc": DW_FORM.exprloc,
     "DW_FORM_flag_present": DW_FORM.flag_present,
 }
@@ -203,6 +204,9 @@ class DW_FORM_decorder:
 
             # case DW_FORM.indirect.value:
             # DW_FORM_indirectが再帰することは無い想定
+
+            case DW_FORM.sec_offset.value:
+                return (None, value)
 
             case DW_FORM.exprloc.value:
                 # value に Dwarf expression が格納されているとみなす

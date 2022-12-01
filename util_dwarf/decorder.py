@@ -908,10 +908,11 @@ class Decorder:
                     self.warn_noimpl(f"{parent.tag}: unknown attribute: " + at)
         # 省略DW_AT_*チェック
         if var.decl_file is None:
-            # DW_AT_decl_file
-            # CompileUnitのファイルが対象の場合省略されることがある？
-            parent.decl_file = 1
-            var.decl_file = self._active_cu.file_list[1]
+            if len(self._active_cu.file_list) > 1:
+                # DW_AT_decl_file
+                # CompileUnitのファイルが対象の場合省略されることがある？
+                parent.decl_file = 1
+                var.decl_file = self._active_cu.file_list[1]
         # child check
         if die.has_children:
             child: DIE
